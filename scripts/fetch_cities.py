@@ -16,6 +16,7 @@ feature_code геообъекта.
 import argparse
 import csv
 import io
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -26,7 +27,14 @@ GEONAMES_RU_URL = "https://download.geonames.org/export/dump/RU.zip"
 ADMIN1_CODES_URL = "https://download.geonames.org/export/dump/admin1CodesASCII.txt"
 
 # см. https://www.geonames.org/export/codes.html
-ADMIN_FEATURE_CODES = {"PPL", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLC", "PPLG"}
+# Намеренно БЕЗ голого "PPL" — это код для любого населённого пункта, включая
+# деревни; с ним выборка вместо городов утаскивает сотни тысяч мелких сёл.
+# Оставлены только коды, отмечающие населённый пункт как административный
+# центр того или иного уровня — приближение к "городам" без легальной точности
+# (см. docstring модуля).
+ADMIN_FEATURE_CODES = {"PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLC", "PPLG"}
+
+CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 GEONAMES_COLUMNS = [
     "geonameid", "name", "asciiname", "alternatenames", "latitude", "longitude",
@@ -44,6 +52,18 @@ def fetch_admin1_names() -> dict[str, str]:
         code, name, *_ = line.split("\t")
         names[code] = name
     return names
+
+
+def cyrillic_name(row: dict) -> str:
+    """GeoNames хранит для многих российских НП имя в "name" латиницей
+    (транслитерация), а кириллический вариант — среди прочих в alternatenames
+    без языковых тегов. Берём первый кириллический вариант оттуда, иначе —
+    исходное "name" как есть."""
+    for alt in row.get("alternatenames", "").split(","):
+        alt = alt.strip()
+        if alt and CYRILLIC_RE.search(alt):
+            return alt
+    return row["name"]
 
 
 def fetch_geonames_ru() -> list[dict]:
@@ -67,7 +87,7 @@ def build_cities_csv(min_population: int, out_path: Path):
         population = int(row["population"] or 0)
         if population < min_population:
             continue
-        name = row["name"]
+        name = cyrillic_name(row)
         if name in seen_names:
             continue
         seen_names.add(name)
