@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Куб — мини-склады в вашем городе</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --border: #e4e1da;
+    --text: #1c1b19;
+    --text-muted: #726e65;
+    --accent: #c65a2e;
+    --accent-dark: #a5451f;
+    --accent-soft: #fbe9df;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(28,27,25,.04), 0 8px 24px rgba(28,27,25,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171614;
+      --surface: #211f1c;
+      --border: #34312c;
+      --text: #f2f0ea;
+      --text-muted: #a8a397;
+      --accent: #e07a4c;
+      --accent-dark: #f0916a;
+      --accent-soft: #3a2a21;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171614; --surface: #211f1c; --border: #34312c; --text: #f2f0ea;
+    --text-muted: #a8a397; --accent: #e07a4c; --accent-dark: #f0916a; --accent-soft: #3a2a21;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: inherit; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 16px; }
+
+  header.site { border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 20; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 20px; text-decoration: none; }
+  .logo-mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 800; }
+  .top-actions { display: flex; gap: 10px; align-items: center; }
+  .btn { font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    padding: 9px 16px; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-flex;
+    align-items: center; gap: 6px; }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+  .hero { padding: 40px 0 28px; }
+  .hero h1 { font-size: clamp(26px, 4vw, 38px); margin: 0 0 8px; letter-spacing: -.01em; }
+  .hero p { color: var(--text-muted); margin: 0 0 22px; font-size: 16px; }
+
+  .search-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 10px; }
+  .field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .field select, .field input { width: 100%; font: inherit; padding: 10px 12px; border-radius: 9px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .search-card .btn-primary { align-self: end; padding: 11px 22px; white-space: nowrap; }
+
+  main { padding: 28px 0 80px; }
+  .layout { display: grid; grid-template-columns: 240px 1fr; gap: 26px; align-items: start; }
+
+  .filters { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; position: sticky; top: 78px; }
+  .filters h3 { margin: 0 0 14px; font-size: 14px; }
+  .filter-group { margin-bottom: 18px; }
+  .filter-group > div { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+  .filter-group label.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 4px 0; cursor: pointer; }
+  .range-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  .results-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .results-head .count { color: var(--text-muted); font-size: 14px; }
+  .sort select { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; }
+  .card-top { display: flex; justify-content: space-between; gap: 10px; }
+  .card h3 { margin: 0; font-size: 17px; }
+  .card .addr { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+  .rating { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .rating .star { color: var(--accent); }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { font-size: 12px; background: var(--accent-soft); color: var(--accent-dark); padding: 4px 9px; border-radius: 999px; font-weight: 600; }
+  .card-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; border-top: 1px dashed var(--border); }
+  .price { font-size: 15px; }
+  .price b { font-size: 19px; }
+  .price span { color: var(--text-muted); font-size: 13px; }
+
+  .empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+
+  /* Калькулятор объёма */
+  .calc-section { margin-top: 44px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow); }
+  .calc-section h2 { margin: 0 0 4px; font-size: 20px; }
+  .calc-section > p { margin: 0 0 18px; color: var(--text-muted); font-size: 14px; }
+  .calc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px 18px; }
+  .calc-item { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .stepper { display: flex; align-items: center; gap: 8px; }
+  .stepper button { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+  .stepper span { min-width: 18px; text-align: center; }
+  .calc-result { margin-top: 18px; display: flex; align-items: center; justify-content: space-between;
+    background: var(--accent-soft); border-radius: 10px; padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
+  .calc-result .total { font-size: 15px; }
+  .calc-result .total b { font-size: 22px; color: var(--accent-dark); }
+  .calc-result .rec { font-size: 14px; color: var(--text); }
+
+  /* Модалка бронирования */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+    align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: var(--radius); max-width: 440px; width: 100%;
+    padding: 22px; box-shadow: var(--shadow); max-height: 90vh; overflow: auto; }
+  .modal h2 { margin: 0 0 4px; font-size: 19px; }
+  .modal .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; }
+  .modal label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 5px; }
+  .modal select, .modal input { width: 100%; font: inherit; padding: 10px 12px; border-radius: 9px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .modal .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  .fee-note { font-size: 12px; color: var(--text-muted); margin-top: 14px; }
+  .close-x { float: right; background: none; border: none; font-size: 20px; color: var(--text-muted); cursor: pointer; line-height: 1; }
+  .success { text-align: center; padding: 10px 0; }
+  .success .check { width: 52px; height: 52px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent-dark); display: flex; align-items: center; justify-content: center; font-size: 26px;
+    margin: 0 auto 14px; }
+
+  footer { border-top: 1px solid var(--border); padding: 26px 0; color: var(--text-muted); font-size: 13px; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    .filters { position: static; }
+    .search-card { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: 1fr; }
+    .calc-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap topbar">
+    <a href="#" class="logo"><span class="logo-mark">К</span> Куб</a>
+    <div class="top-actions">
+      <button class="btn btn-sm" id="theme-toggle" type="button" title="Тема">🌓</button>
+      <a href="#" class="btn">Для операторов</a>
+      <a href="#" class="btn btn-primary">Войти</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Мини-склад рядом с вами — бронь за минуту</h1>
+      <p>Сравнивайте склады по цене, размеру бокса и отзывам, бронируйте онлайн без звонков оператору.</p>
+
+      <div class="search-card">
+        <div class="field">
+          <label for="f-city">Город</label>
+          <select id="f-city"></select>
+        </div>
+        <div class="field">
+          <label for="f-size">Объём</label>
+          <select id="f-size">
+            <option value="0">Любой</option>
+            <option value="1">до 2 м³ — коробки, сезонные вещи</option>
+            <option value="3">2–5 м³ — 1-комнатная квартира</option>
+            <option value="8">5–10 м³ — 2–3-комнатная квартира</option>
+            <option value="15">от 10 м³ — дом, офис</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-date">Нужен с</label>
+          <input type="date" id="f-date">
+        </div>
+        <button class="btn btn-primary" id="search-btn" type="button">Найти склад</button>
+      </div>
+    </section>
+
+    <div class="layout">
+      <aside class="filters">
+        <h3>Фильтры</h3>
+
+        <div class="filter-group">
+          <div>Цена, ₽ / мес до</div>
+          <input type="range" id="f-price" min="1000" max="15000" step="500" value="15000" style="width:100%">
+          <div class="range-row"><span>1 000 ₽</span><span id="f-price-val">15 000 ₽</span></div>
+        </div>
+
+        <div class="filter-group">
+          <div>Особенности</div>
+          <label class="chk"><input type="checkbox" value="охрана 24/7"> Охрана 24/7</label>
+          <label class="chk"><input type="checkbox" value="видеонаблюдение"> Видеонаблюдение</label>
+          <label class="chk"><input type="checkbox" value="отопление"> Отопление</label>
+          <label class="chk"><input type="checkbox" value="доступ 24/7"> Доступ 24/7</label>
+          <label class="chk"><input type="checkbox" value="погрузка"> Помощь с погрузкой</label>
+        </div>
+
+        <button class="btn btn-sm" id="reset-filters" type="button" style="width:100%">Сбросить</button>
+      </aside>
+
+      <section>
+        <div class="results-head">
+          <div class="count" id="results-count">— складов</div>
+          <div class="sort">
+            <select id="sort-select">
+              <option value="price">Сначала дешевле</option>
+              <option value="rating">По рейтингу</option>
+              <option value="distance">Ближе ко мне</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cards" id="cards"></div>
+        <div class="empty" id="empty-state" style="display:none">Ничего не найдено — попробуйте изменить фильтры.</div>
+      </section>
+    </div>
+
+    <section class="calc-section">
+      <h2>Калькулятор объёма</h2>
+      <p>Отметьте, что нужно хранить — подскажем подходящий размер бокса.</p>
+      <div class="calc-grid" id="calc-grid"></div>
+      <div class="calc-result">
+        <div class="total">Примерный объём: <b id="calc-total">0</b> м³</div>
+        <div class="rec" id="calc-rec">Выберите вещи, чтобы увидеть рекомендацию</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">Куб — агрегатор мини-складов по России. Тестовые данные, демо-прототип.</div>
+</footer>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- тестовые данные ----------
+  var CITIES = ["Казань", "Новосибирск", "Екатеринбург", "Нижний Новгород", "Петрозаводск"];
+
+  var STORAGES = [
+    { id: 1, city: "Казань", name: "СкладОК Азино", addr: "ул. Чистопольская, 71", price: 2400, sizeMin: 1, sizeMax: 12, rating: 4.8, distance: 1.2,
+      features: ["охрана 24/7", "видеонаблюдение", "доступ 24/7"] },
+    { id: 2, city: "Казань", name: "БоксХаус Горки", addr: "пр. Ямашева, 36", price: 1900, sizeMin: 1, sizeMax: 8, rating: 4.5, distance: 2.8,
+      features: ["видеонаблюдение", "отопление"] },
+    { id: 3, city: "Новосибирск", name: "Мой Склад НСК", addr: "ул. Кошурникова, 25", price: 2100, sizeMin: 2, sizeMax: 15, rating: 4.7, distance: 3.1,
+      features: ["охрана 24/7", "погрузка"] },
+    { id: 4, city: "Новосибирск", name: "Кладовка.ру", addr: "ул. Ватутина, 91", price: 1700, sizeMin: 1, sizeMax: 6, rating: 4.2, distance: 5.4,
+      features: ["доступ 24/7"] },
+    { id: 5, city: "Екатеринбург", name: "СтопХранение Уралмаш", addr: "ул. Кировградская, 14", price: 2600, sizeMin: 3, sizeMax: 20, rating: 4.9, distance: 0.9,
+      features: ["охрана 24/7", "видеонаблюдение", "отопление", "доступ 24/7"] },
+    { id: 6, city: "Нижний Новгород", name: "БоксСити Автозавод", addr: "пр. Ленина, 100", price: 1800, sizeMin: 1, sizeMax: 10, rating: 4.4, distance: 4.0,
+      features: ["видеонаблюдение", "погрузка"] },
+    { id: 7, city: "Петрозаводск", name: "СевСклад Древлянка", addr: "ул. Кораблестроителей, 3", price: 1500, sizeMin: 1, sizeMax: 8, rating: 4.6, distance: 1.7,
+      features: ["отопление", "доступ 24/7"] },
+    { id: 8, city: "Петрозаводск", name: "Куб-Хранение Центр", addr: "пр. Ленина, 22", price: 2200, sizeMin: 2, sizeMax: 12, rating: 4.3, distance: 0.6,
+      features: ["охрана 24/7", "видеонаблюдение"] }
+  ];
+
+  var CALC_ITEMS = [
+    { key: "box", label: "Коробки (10 шт.)", volume: 1 },
+    { key: "sofa", label: "Диван", volume: 2.5 },
+    { key: "bed", label: "Кровать", volume: 2 },
+    { key: "wardrobe", label: "Шкаф", volume: 2 },
+    { key: "fridge", label: "Холодильник", volume: 1.5 },
+    { key: "table", label: "Стол + стулья", volume: 1.5 },
+    { key: "bike", label: "Велосипед", volume: 0.5 },
+    { key: "tires", label: "Комплект шин", volume: 0.8 },
+    { key: "skis", label: "Лыжи/сноуборд", volume: 0.4 }
+  ];
+
+  var COMMISSION = 6000;
+
+  // ---------- состояние ----------
+  var state = { city: CITIES[0], size: 0, maxPrice: 15000, features: [], sort: "price" };
+  var calcCounts = {};
+
+  // ---------- инициализация ----------
+  var citySelect = document.getElementById("f-city");
+  CITIES.forEach(function (c) {
+    var opt = document.createElement("option");
+    opt.value = c; opt.textContent = c;
+    citySelect.appendChild(opt);
+  });
+  citySelect.value = state.city;
+
+  function renderCards() {
+    var list = STORAGES.filter(function (s) {
+      if (s.city !== state.city) return false;
+      if (s.price > state.maxPrice) return false;
+      if (state.size && s.sizeMax < state.size) return false;
+      if (state.features.length && !state.features.every(function (f) { return s.features.indexOf(f) !== -1; })) return false;
+      return true;
+    });
+
+    list.sort(function (a, b) {
+      if (state.sort === "price") return a.price - b.price;
+      if (state.sort === "rating") return b.rating - a.rating;
+      return a.distance - b.distance;
+    });
+
+    var wrap = document.getElementById("cards");
+    var empty = document.getElementById("empty-state");
+    wrap.innerHTML = "";
+    document.getElementById("results-count").textContent = list.length + " " + pluralStorages(list.length);
+
+    if (!list.length) {
+      empty.style.display = "block";
+      return;
+    }
+    empty.style.display = "none";
+
+    list.forEach(function (s) {
+      var card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<div class="card-top">' +
+          '<div><h3>' + s.name + '</h3><div class="addr">' + s.addr + ' · ' + s.distance + ' км</div></div>' +
+          '<div class="rating"><span class="star">★</span>' + s.rating.toFixed(1) + '</div>' +
+        '</div>' +
+        '<div class="badges">' + s.features.map(function (f) { return '<span class="badge">' + f + '</span>'; }).join("") + '</div>' +
+        '<div class="card-bottom">' +
+          '<div class="price"><b>' + s.price.toLocaleString("ru-RU") + ' ₽</b><span> / мес, от ' + s.sizeMin + ' м³</span></div>' +
+          '<button class="btn btn-primary btn-sm" data-book="' + s.id + '">Забронировать</button>' +
+        '</div>';
+      wrap.appendChild(card);
+    });
+
+    wrap.querySelectorAll("[data-book]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        openBookingModal(Number(btn.getAttribute("data-book")));
+      });
+    });
+  }
+
+  function pluralStorages(n) {
+    var mod10 = n % 10, mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return "склад";
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "склада";
+    return "складов";
+  }
+
+  // ---------- фильтры ----------
+  document.getElementById("search-btn").addEventListener("click", function () {
+    state.city = citySelect.value;
+    state.size = Number(document.getElementById("f-size").value);
+    renderCards();
+  });
+
+  var priceRange = document.getElementById("f-price");
+  priceRange.addEventListener("input", function () {
+    state.maxPrice = Number(priceRange.value);
+    document.getElementById("f-price-val").textContent = state.maxPrice.toLocaleString("ru-RU") + " ₽";
+    renderCards();
+  });
+
+  document.querySelectorAll('.filter-group input[type="checkbox"]').forEach(function (cb) {
+    cb.addEventListener("change", function () {
+      state.features = Array.from(document.querySelectorAll('.filter-group input[type="checkbox"]:checked')).map(function (c) { return c.value; });
+      renderCards();
+    });
+  });
+
+  document.getElementById("sort-select").addEventListener("change", function (e) {
+    state.sort = e.target.value;
+    renderCards();
+  });
+
+  document.getElementById("reset-filters").addEventListener("click", function () {
+    state.maxPrice = 15000; state.features = [];
+    priceRange.value = 15000;
+    document.getElementById("f-price-val").textContent = "15 000 ₽";
+    document.querySelectorAll('.filter-group input[type="checkbox"]').forEach(function (c) { c.checked = false; });
+    renderCards();
+  });
+
+  // ---------- калькулятор объёма ----------
+  var calcGrid = document.getElementById("calc-grid");
+  CALC_ITEMS.forEach(function (item) {
+    calcCounts[item.key] = 0;
+    var row = document.createElement("div");
+    row.className = "calc-item";
+    row.innerHTML =
+      '<span>' + item.label + '</span>' +
+      '<span class="stepper">' +
+        '<button type="button" data-act="dec" data-key="' + item.key + '">−</button>' +
+        '<span id="calc-count-' + item.key + '">0</span>' +
+        '<button type="button" data-act="inc" data-key="' + item.key + '">+</button>' +
+      '</span>';
+    calcGrid.appendChild(row);
+  });
+
+  calcGrid.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-key]");
+    if (!btn) return;
+    var key = btn.getAttribute("data-key");
+    var delta = btn.getAttribute("data-act") === "inc" ? 1 : -1;
+    calcCounts[key] = Math.max(0, calcCounts[key] + delta);
+    document.getElementById("calc-count-" + key).textContent = calcCounts[key];
+    updateCalcResult();
+  });
+
+  function updateCalcResult() {
+    var total = CALC_ITEMS.reduce(function (sum, item) { return sum + item.volume * calcCounts[item.key]; }, 0);
+    document.getElementById("calc-total").textContent = total.toFixed(1);
+    var rec = document.getElementById("calc-rec");
+    if (total === 0) rec.textContent = "Выберите вещи, чтобы увидеть рекомендацию";
+    else if (total <= 2) rec.textContent = "Рекомендуем бокс 1–2 м³";
+    else if (total <= 5) rec.textContent = "Рекомендуем бокс 2–5 м³";
+    else if (total <= 10) rec.textContent = "Рекомендуем бокс 5–10 м³";
+    else rec.textContent = "Рекомендуем бокс от 10 м³";
+  }
+
+  // ---------- модалка бронирования ----------
+  var overlay = document.getElementById("modal-overlay");
+  var modal = document.getElementById("modal");
+
+  function openBookingModal(storageId) {
+    var s = STORAGES.filter(function (x) { return x.id === storageId; })[0];
+    if (!s) return;
+    modal.innerHTML =
+      '<button class="close-x" id="modal-close">×</button>' +
+      '<h2>' + s.name + '</h2>' +
+      '<p class="sub">' + s.addr + '</p>' +
+      '<label for="bk-size">Размер бокса</label>' +
+      '<select id="bk-size">' +
+        '<option value="' + s.sizeMin + '">от ' + s.sizeMin + ' м³ — ' + s.price.toLocaleString("ru-RU") + ' ₽/мес</option>' +
+        '<option value="' + s.sizeMax + '">до ' + s.sizeMax + ' м³ — ' + Math.round(s.price * (s.sizeMax / s.sizeMin)).toLocaleString("ru-RU") + ' ₽/мес</option>' +
+      '</select>' +
+      '<div class="row2">' +
+        '<div><label for="bk-from">С</label><input type="date" id="bk-from"></div>' +
+        '<div><label for="bk-months">Срок, мес.</label><input type="number" id="bk-months" min="1" value="1"></div>' +
+      '</div>' +
+      '<label for="bk-phone">Телефон</label>' +
+      '<input type="tel" id="bk-phone" placeholder="+7 ___ ___-__-__">' +
+      '<div class="modal-actions">' +
+        '<button class="btn" id="bk-cancel" type="button">Отмена</button>' +
+        '<button class="btn btn-primary" id="bk-confirm" type="button">Подтвердить бронь</button>' +
+      '</div>' +
+      '<div class="fee-note">Комиссия сервиса ' + COMMISSION.toLocaleString("ru-RU") + ' ₽ удерживается со склада, для вас бесплатно.</div>';
+
+    overlay.classList.add("open");
+    document.getElementById("modal-close").addEventListener("click", closeModal);
+    document.getElementById("bk-cancel").addEventListener("click", closeModal);
+    document.getElementById("bk-confirm").addEventListener("click", function () {
+      showBookingSuccess(s);
+    });
+  }
+
+  function showBookingSuccess(s) {
+    modal.innerHTML =
+      '<button class="close-x" id="modal-close">×</button>' +
+      '<div class="success">' +
+        '<div class="check">✓</div>' +
+        '<h2>Бронь отправлена</h2>' +
+        '<p class="sub">Оператор «' + s.name + '» свяжется с вами для подтверждения в течение часа.</p>' +
+        '<button class="btn btn-primary" id="bk-done" type="button" style="width:100%">Готово</button>' +
+      '</div>';
+    document.getElementById("modal-close").addEventListener("click", closeModal);
+    document.getElementById("bk-done").addEventListener("click", closeModal);
+  }
+
+  function closeModal() { overlay.classList.remove("open"); }
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(); });
+
+  // ---------- тема ----------
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var root = document.documentElement;
+    var current = root.getAttribute("data-theme");
+    root.setAttribute("data-theme", current === "dark" ? "light" : "dark");
+  });
+
+  renderCards();
+  updateCalcResult();
+})();
+</script>
+</body>
+</html>
