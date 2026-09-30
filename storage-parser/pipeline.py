@@ -1,8 +1,11 @@
 """Основной конвейер: cities.csv → 2ГИС Places API → Postgres (storages) + CSV.
 
+Ищем все виды складов (self_storage, warehouse_rental, logistics, wholesale,
+industrial — см. config.SEARCH_CATEGORIES), категория пишется в storages.category.
+
 Запуск:
     python pipeline.py --min-population 100000
-    python pipeline.py --city Казань --city Новосибирск --queries "мини-склад" "хранение вещей"
+    python pipeline.py --city Казань --city Новосибирск --categories self_storage warehouse_rental
     python pipeline.py --min-population 100000 --csv-out output/storages.csv --dry-run
 """
 import argparse
@@ -47,11 +50,13 @@ def is_relevant(name: str) -> bool:
     return not any(kw in lname for kw in config.TITLE_EXCLUDE_KEYWORDS)
 
 
-def upsert_storage(cur, city: str, region: str, item) -> None:
+def upsert_storage(cur, city: str, region: str, category: str, item) -> None:
+    # category намеренно не перетирается при повторном попадании по другому запросу —
+    # остаётся первая категория, по которой запись была найдена.
     cur.execute(
         """
-        INSERT INTO storages (source, source_id, city, region, name, address, lat, lon, phone, rubrics, raw_json, updated_at)
-        VALUES ('dgis', %(source_id)s, %(city)s, %(region)s, %(name)s, %(address)s, %(lat)s, %(lon)s, %(phone)s, %(rubrics)s, %(raw)s, now())
+        INSERT INTO storages (source, source_id, category, city, region, name, address, lat, lon, phone, rubrics, raw_json, updated_at)
+        VALUES ('dgis', %(source_id)s, %(category)s, %(city)s, %(region)s, %(name)s, %(address)s, %(lat)s, %(lon)s, %(phone)s, %(rubrics)s, %(raw)s, now())
         ON CONFLICT (source, source_id) DO UPDATE SET
             name = EXCLUDED.name,
             address = EXCLUDED.address,
@@ -64,6 +69,7 @@ def upsert_storage(cur, city: str, region: str, item) -> None:
         """,
         {
             "source_id": item.source_id,
+            "category": category,
             "city": city,
             "region": region,
             "name": item.name,
@@ -87,32 +93,33 @@ def upsert_storage(cur, city: str, region: str, item) -> None:
         )
 
 
-def run(min_population: int, only_cities: list[str] | None, queries: list[str], csv_out: Path | None, dry_run: bool):
+def run(min_population: int, only_cities: list[str] | None, categories: list[str], csv_out: Path | None, dry_run: bool):
     cities = load_cities(min_population, only_cities)
-    print(f"Городов в выборке: {len(cities)}")
+    print(f"Городов в выборке: {len(cities)}, категорий: {', '.join(categories)}")
 
     client = DgisClient()
     csv_rows = []
     total_found = 0
     try:
         for city in cities:
-            for query in queries:
-                items = list(client.search(city["lat"], city["lon"], query))
-                items = [it for it in items if is_relevant(it.name)]
-                total_found += len(items)
-                print(f"{city['city']} / '{query}': {len(items)}")
+            for category in categories:
+                for query in config.SEARCH_CATEGORIES[category]:
+                    items = list(client.search(city["lat"], city["lon"], query))
+                    items = [it for it in items if is_relevant(it.name)]
+                    total_found += len(items)
+                    print(f"{city['city']} / {category} / '{query}': {len(items)}")
 
-                if dry_run:
-                    csv_rows.extend(
-                        {"city": city["city"], "region": city.get("region", ""), "query": query, **vars(it)}
-                        for it in items
-                    )
-                    continue
+                    if dry_run:
+                        csv_rows.extend(
+                            {"city": city["city"], "region": city.get("region", ""), "category": category, "query": query, **vars(it)}
+                            for it in items
+                        )
+                        continue
 
-                with get_cursor() as cur:
-                    for it in items:
-                        upsert_storage(cur, city["city"], city.get("region", ""), it)
-                        csv_rows.append({"city": city["city"], "region": city.get("region", ""), "query": query, **vars(it)})
+                    with get_cursor() as cur:
+                        for it in items:
+                            upsert_storage(cur, city["city"], city.get("region", ""), category, it)
+                            csv_rows.append({"city": city["city"], "region": city.get("region", ""), "category": category, "query": query, **vars(it)})
     finally:
         client.close()
 
@@ -121,7 +128,7 @@ def run(min_population: int, only_cities: list[str] | None, queries: list[str], 
     if csv_out:
         csv_out.parent.mkdir(parents=True, exist_ok=True)
         with csv_out.open("w", encoding="utf-8", newline="") as f:
-            fieldnames = ["city", "region", "query", "source_id", "name", "address", "lat", "lon", "rubrics", "phone", "site"]
+            fieldnames = ["city", "region", "category", "query", "source_id", "name", "address", "lat", "lon", "rubrics", "phone", "site"]
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(csv_rows)
@@ -132,9 +139,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--min-population", type=int, default=config.MIN_POPULATION)
     parser.add_argument("--city", action="append", dest="cities", help="ограничить конкретными городами (можно несколько раз)")
-    parser.add_argument("--queries", nargs="+", default=config.SEARCH_QUERIES)
+    parser.add_argument(
+        "--categories",
+        nargs="+",
+        choices=list(config.SEARCH_CATEGORIES),
+        default=list(config.SEARCH_CATEGORIES),
+        help="ограничить конкретными категориями складов",
+    )
     parser.add_argument("--csv-out", type=Path, default=config.OUTPUT_DIR / "storages.csv")
     parser.add_argument("--dry-run", action="store_true", help="не писать в Postgres, только CSV")
     args = parser.parse_args()
 
-    run(args.min_population, args.cities, args.queries, args.csv_out, args.dry_run)
+    run(args.min_population, args.cities, args.categories, args.csv_out, args.dry_run)

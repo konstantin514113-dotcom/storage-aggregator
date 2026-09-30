@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS storages (
     id              SERIAL PRIMARY KEY,
     source          TEXT NOT NULL,             -- dgis | avito | site
     source_id       TEXT NOT NULL,              -- id записи в источнике (id 2ГИС, id объявления Avito, ...)
+    category        TEXT,                       -- self_storage | warehouse_rental | logistics | wholesale | industrial
     city            TEXT NOT NULL,
     region          TEXT,
     name            TEXT,
@@ -37,5 +38,6 @@ CREATE TABLE IF NOT EXISTS storages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_storages_city ON storages (city);
+CREATE INDEX IF NOT EXISTS idx_storages_category ON storages (category);
 CREATE INDEX IF NOT EXISTS idx_storages_geo ON storages (lat, lon);
 CREATE INDEX IF NOT EXISTS idx_storages_duplicate_of ON storages (duplicate_of);
