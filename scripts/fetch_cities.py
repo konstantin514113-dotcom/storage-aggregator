@@ -12,11 +12,22 @@ Claude Code с ограниченной сетевой политикой (см.
 Итоговое число строк ориентировочно близко к 1117 «городам» Росстата, но не гарантированно
 совпадает — GeoNames не хранит российский юридический статус "город" напрямую, только
 feature_code геообъекта.
+
+ВАЖНО про названия: поле "name" в GeoNames для многих российских населённых
+пунктов — это английский экзоним или транслитерация (например "Moscow", а не
+"Москва"), не гарантированно кириллица. Была попытка чинить это эвристикой
+"первое кириллическое имя из alternatenames", но alternatenames там не помечены
+языком — эвристика хватала названия на осетинском/чувашском/марийском/якутском
+и советские исторические имена (Москва → "Мæскуы", Пермь → "Молотов",
+Набережные Челны → "Брежнев"), то есть правдоподобно выглядящие, но фактически
+неверные. Хуже, чем английское название. Поэтому здесь просто row["name"] как
+есть — годится как ключ для city_name_overrides.csv (geonameid,city), который
+можно дополнять вручную для городов, где это важно (в первую очередь — крупные,
+из MIN_POPULATION-выборки).
 """
 import argparse
 import csv
 import io
-import re
 import sys
 import zipfile
 from pathlib import Path
@@ -25,6 +36,7 @@ import httpx
 
 GEONAMES_RU_URL = "https://download.geonames.org/export/dump/RU.zip"
 ADMIN1_CODES_URL = "https://download.geonames.org/export/dump/admin1CodesASCII.txt"
+OVERRIDES_PATH = Path(__file__).resolve().parent / "city_name_overrides.csv"
 
 # см. https://www.geonames.org/export/codes.html
 # Намеренно БЕЗ голого "PPL" — это код для любого населённого пункта, включая
@@ -33,8 +45,6 @@ ADMIN1_CODES_URL = "https://download.geonames.org/export/dump/admin1CodesASCII.t
 # центр того или иного уровня — приближение к "городам" без легальной точности
 # (см. docstring модуля).
 ADMIN_FEATURE_CODES = {"PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLC", "PPLG"}
-
-CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 GEONAMES_COLUMNS = [
     "geonameid", "name", "asciiname", "alternatenames", "latitude", "longitude",
@@ -54,16 +64,12 @@ def fetch_admin1_names() -> dict[str, str]:
     return names
 
 
-def cyrillic_name(row: dict) -> str:
-    """GeoNames хранит для многих российских НП имя в "name" латиницей
-    (транслитерация), а кириллический вариант — среди прочих в alternatenames
-    без языковых тегов. Берём первый кириллический вариант оттуда, иначе —
-    исходное "name" как есть."""
-    for alt in row.get("alternatenames", "").split(","):
-        alt = alt.strip()
-        if alt and CYRILLIC_RE.search(alt):
-            return alt
-    return row["name"]
+def load_overrides() -> dict[str, str]:
+    """geonameid -> правильное русское название. См. docstring модуля."""
+    if not OVERRIDES_PATH.exists():
+        return {}
+    with OVERRIDES_PATH.open(encoding="utf-8") as f:
+        return {row["geonameid"]: row["city"] for row in csv.DictReader(f)}
 
 
 def fetch_geonames_ru() -> list[dict]:
@@ -77,6 +83,7 @@ def fetch_geonames_ru() -> list[dict]:
 
 def build_cities_csv(min_population: int, out_path: Path):
     admin1_names = fetch_admin1_names()
+    overrides = load_overrides()
     rows = fetch_geonames_ru()
 
     seen_names = set()
@@ -87,7 +94,7 @@ def build_cities_csv(min_population: int, out_path: Path):
         population = int(row["population"] or 0)
         if population < min_population:
             continue
-        name = cyrillic_name(row)
+        name = overrides.get(row["geonameid"], row["name"])
         if name in seen_names:
             continue
         seen_names.add(name)
