@@ -3,10 +3,8 @@
 Документация: https://docs.2gis.com/ru/api/search/places/overview
 Эндпоинт: GET https://catalog.api.2gis.com/3.0/items
 
-ВНИМАНИЕ: код не проверен против живого API (в этой сессии нет DGIS_API_KEY и нет
-доступа к catalog.api.2gis.com из песочницы). Перед боевым прогоном свериться с
-актуальной документацией и прогнать count_cities.py на 1-2 городах — особенно поля
-`result.total` для подсчёта и лимиты page/page_size.
+Проверено на живом демо-ключе (count() — да, search() с пагинацией — да, после
+фикса page_size, см. ниже). result.total в ответе есть и используется в count().
 """
 import sys
 import time
@@ -21,7 +19,10 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 import config
 
 BASE_URL = "https://catalog.api.2gis.com/3.0/items"
-MAX_PAGE_SIZE = 50
+# Живой API отвечает 400 "Length of parameter 'page_size' should be from 1 to 10"
+# при большем значении — несмотря на то, что часть документации в сети упоминает
+# page_size до 50. Если это когда-то изменится, поднять здесь и проверить заново.
+MAX_PAGE_SIZE = 10
 MAX_PAGES = 20  # защита от случайного выжигания лимита демо-ключа
 
 
