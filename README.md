@@ -11,9 +11,12 @@ self_storage — как Booking: клиент ищет и бронирует б�
 
 ```
 storage-aggregator/
-├── cities.csv                  # пример списка городов (см. "Список городов" ниже)
+├── cities.csv                  # 145 городов РФ от 100 тыс. населения (см. "Список городов" ниже)
+├── avito_import_template.csv   # шаблон для storage-parser/import_avito.py
 ├── count_cities.py             # подсчёт складов по городам, 1 запрос 2ГИС на город
 ├── kubometr.html                # прототип сайта (поиск/фильтры/карточки/бронь/калькулятор), тестовые данные
+├── docs/
+│   └── city_counts_100k.csv    # результат count_cities.py по всем 145 городам
 ├── scripts/
 │   └── fetch_cities.py         # сборка полного cities.csv из GeoNames (нужен доступ в интернет)
 └── storage-parser/
@@ -27,7 +30,8 @@ storage-aggregator/
     │   └── yandex.py            # заглушка — пока не используется
     ├── crawler/
     │   └── site_crawler.py      # обход сайта оператора + извлечение данных через Claude API
-    ├── dedupe.py                # склейка дублей (по гео + похожести названия)
+    ├── import_avito.py          # импорт выгрузки Авито (source=avito) из CSV
+    ├── dedupe.py                # склейка дублей (по гео + похожести названия, между всеми source)
     └── pipeline.py               # основной конвейер: cities.csv → 2ГИС → Postgres/CSV
 ```
 
@@ -186,9 +190,28 @@ python pipeline.py --min-population 100000
 Переменные сервиса: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `DGIS_API_KEY`,
 `ANTHROPIC_API_KEY`.
 
+## Импорт Авито
+
+У Авито нет официального API для массового сбора — выгрузка собирается вручную
+(браузер / Claude в Chrome) в CSV по шаблону `avito_import_template.csv` и
+импортируется `storage-parser/import_avito.py`:
+
+```bash
+cd storage-parser
+python import_avito.py ../avito_import.csv --dry-run   # проверить без записи в БД
+python import_avito.py ../avito_import.csv              # записать (source=avito)
+python dedupe.py                                         # склеить дубли с 2ГИС (across source — без изменений)
+```
+
+Обязательные колонки шаблона: `city`, `url`, `name`. `url` — основа `source_id`
+(берётся числовой id из конца ссылки вида `..._1234567890`, иначе md5 от url).
+Авито часто даёт то, чего нет у демо-ключа 2ГИС — например, телефон продавца
+(см. «Демо-ключ 2ГИС не отдаёт контакты» выше) — колонка `phone` в шаблоне.
+`dedupe.py` уже работает по всем `source` в рамках города без изменений — отдельно
+прогонять для Авито не нужно, просто гонять `dedupe.py` после каждого импорта.
+
 ## Дальше по плану
 
-- Импорт выгрузки Авито (собирается вручную через Claude в Chrome) как источник `avito`
-  в `storages.source` — см. `storage-parser/dedupe.py` для склейки дублей с 2ГИС/сайтами.
+- ✅ Импорт Авито — см. выше.
 - Перенос `kubometr.html` на реальные данные из Postgres (сейчас в разметке — тестовые
   карточки).
