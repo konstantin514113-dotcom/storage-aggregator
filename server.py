@@ -33,6 +33,43 @@ TRANSLIT = {
 }
 
 
+PREPOSITIONAL_OVERRIDES = {
+    "Нижний Новгород": "Нижнем Новгороде",
+    "Ростов-на-Дону": "Ростове-на-Дону",
+    "Санкт-Петербург": "Санкт-Петербурге",
+    "Йошкар-Ола": "Йошкар-Оле",
+    "Набережные Челны": "Набережных Челнах",
+    "Великий Новгород": "Великом Новгороде",
+    "Великие Луки": "Великих Луках",
+    "Старый Оскол": "Старом Осколе",
+    "Комсомольск-на-Амуре": "Комсомольске-на-Амуре",
+    "Каменск-Уральский": "Каменске-Уральском",
+    "Петропавловск-Камчатский": "Петропавловске-Камчатском",
+    "Орехово-Зуево": "Орехово-Зуеве",
+    "Сочи": "Сочи",
+    "Ярославль": "Ярославле",
+    "Грозный": "Грозном",
+    "Орёл": "Орле",
+    "Орел": "Орле",
+}
+
+
+def prepositional(city: str) -> str:
+    """Город в предложном падеже ("в Казани", "в Волгограде") — для заголовков/описаний.
+    Точный для override-списка, эвристика для остальных (не покрывает все исключения)."""
+    if city in PREPOSITIONAL_OVERRIDES:
+        return PREPOSITIONAL_OVERRIDES[city]
+    if city.endswith("ь"):
+        return city[:-1] + "и"
+    if city.endswith(("а", "я")):
+        return city[:-1] + "е"
+    if city.endswith("о"):
+        return city[:-1] + "е"
+    if city.endswith("ый"):
+        return city[:-2] + "ом"
+    return city + "е"
+
+
 def slugify(city: str) -> str:
     out = []
     for ch in city.lower():
@@ -143,14 +180,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         prices = [s["price_from"] for s in storages if s["price_from"] is not None]
         min_price = int(min(prices)) if prices else None
-        title = f"Аренда склада в {city} — мини-склады и self-storage | Куб"
+        city_prep = prepositional(city)
+        title = f"Аренда склада в {city_prep} — мини-склады и self-storage | Куб"
         if min_price:
+            price_str = f"{min_price:,}".replace(",", " ")
             description = (
-                f"{len(storages)} складов и боксов для хранения в {city}: цены от "
-                f"{min_price:,} ₽/мес. Сравните варианты и оставьте заявку на Кубе."
-            ).replace(",", " ")
+                f"{len(storages)} складов и боксов для хранения в {city_prep}: цены от "
+                f"{price_str} ₽/мес. Сравните варианты и оставьте заявку на Кубе."
+            )
         else:
-            description = f"{len(storages)} складов и боксов для хранения в {city}. Сравните варианты на Кубе."
+            description = f"{len(storages)} складов и боксов для хранения в {city_prep}. Сравните варианты на Кубе."
 
         page = read_template()
         page = page.replace(
