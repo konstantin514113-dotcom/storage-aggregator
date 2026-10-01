@@ -399,14 +399,19 @@ def render_cards_html(storages, limit=60) -> str:
 
 
 def fetch_admin_summary():
+    # Мин/макс цены — отдельно для self_storage (мини-боксы) и остального (крупные
+    # склады/логистика): если смешать, у крупных складов за всё помещение цена
+    # выглядит как "ошибка" рядом с ценами боксов, хотя оба числа верные.
     with get_cursor(commit=False) as cur:
         cur.execute(
             """
             SELECT city,
                    COUNT(*) AS n,
                    COUNT(*) FILTER (WHERE category = 'self_storage') AS n_self,
-                   MIN(price_from)::float AS min_price,
-                   MAX(price_from)::float AS max_price
+                   MIN(price_from) FILTER (WHERE category = 'self_storage')::float AS min_price_self,
+                   MAX(price_from) FILTER (WHERE category = 'self_storage')::float AS max_price_self,
+                   MIN(price_from) FILTER (WHERE category != 'self_storage')::float AS min_price_other,
+                   MAX(price_from) FILTER (WHERE category != 'self_storage')::float AS max_price_other
             FROM storages
             WHERE duplicate_of IS NULL
             GROUP BY city
@@ -453,12 +458,16 @@ def fetch_bookings(limit=100):
         return cur.fetchall()
 
 
+def _fmt_price(v):
+    return f"{int(v):,}".replace(",", " ") if v is not None else "—"
+
+
 def render_admin_page(summary, storages, bookings, city, category, sort) -> str:
     total = sum(r["n"] for r in summary)
     summary_rows = "".join(
         f"<tr><td>{html.escape(r['city'])}</td><td>{r['n']}</td><td>{r['n_self']}</td>"
-        f"<td>{int(r['min_price']) if r['min_price'] is not None else '—'}</td>"
-        f"<td>{int(r['max_price']) if r['max_price'] is not None else '—'}</td></tr>"
+        f"<td>{_fmt_price(r['min_price_self'])} – {_fmt_price(r['max_price_self'])}</td>"
+        f"<td>{_fmt_price(r['min_price_other'])} – {_fmt_price(r['max_price_other'])}</td></tr>"
         for r in summary
     )
 
@@ -527,7 +536,7 @@ def render_admin_page(summary, storages, bookings, city, category, sort) -> str:
 
   <h2>Сводка по городам</h2>
   <table>
-    <tr><th>Город</th><th>Всего</th><th>self_storage</th><th>Мин. цена</th><th>Макс. цена</th></tr>
+    <tr><th>Город</th><th>Всего</th><th>self_storage</th><th>Цены self_storage, ₽/мес</th><th>Цены остальных категорий, ₽/мес</th></tr>
     {summary_rows}
   </table>
 
