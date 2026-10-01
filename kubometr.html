@@ -288,7 +288,10 @@
         opt.value = c; opt.textContent = c;
         citySelect.appendChild(opt);
       });
-      if (cities && cities.length) {
+      if (window.PRESET_CITY && cities.indexOf(window.PRESET_CITY) !== -1) {
+        state.city = window.PRESET_CITY;
+        citySelect.value = state.city;
+      } else if (cities && cities.length) {
         state.city = cities[0];
         citySelect.value = state.city;
       }
