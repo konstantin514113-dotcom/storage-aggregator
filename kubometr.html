@@ -199,15 +199,6 @@
           <div class="range-row"><span>1 000 ₽</span><span id="f-price-val">15 000 ₽</span></div>
         </div>
 
-        <div class="filter-group">
-          <div>Особенности</div>
-          <label class="chk"><input type="checkbox" value="охрана 24/7"> Охрана 24/7</label>
-          <label class="chk"><input type="checkbox" value="видеонаблюдение"> Видеонаблюдение</label>
-          <label class="chk"><input type="checkbox" value="отопление"> Отопление</label>
-          <label class="chk"><input type="checkbox" value="доступ 24/7"> Доступ 24/7</label>
-          <label class="chk"><input type="checkbox" value="погрузка"> Помощь с погрузкой</label>
-        </div>
-
         <button class="btn btn-sm" id="reset-filters" type="button" style="width:100%">Сбросить</button>
       </aside>
 
@@ -217,8 +208,7 @@
           <div class="sort">
             <select id="sort-select">
               <option value="price">Сначала дешевле</option>
-              <option value="rating">По рейтингу</option>
-              <option value="distance">Ближе ко мне</option>
+              <option value="name">По названию</option>
             </select>
           </div>
         </div>
@@ -241,7 +231,7 @@
 </main>
 
 <footer>
-  <div class="wrap">Куб — агрегатор мини-складов по России. Тестовые данные, демо-прототип.</div>
+  <div class="wrap">Куб — агрегатор мини-складов по России. Данные из 2ГИС и Avito, демо-прототип.</div>
 </footer>
 
 <div class="modal-overlay" id="modal-overlay">
@@ -252,27 +242,16 @@
 (function () {
   "use strict";
 
-  // ---------- тестовые данные ----------
-  var CITIES = ["Казань", "Новосибирск", "Екатеринбург", "Нижний Новгород", "Петрозаводск"];
-
-  var STORAGES = [
-    { id: 1, city: "Казань", name: "СкладОК Азино", addr: "ул. Чистопольская, 71", price: 2400, sizeMin: 1, sizeMax: 12, rating: 4.8, distance: 1.2,
-      features: ["охрана 24/7", "видеонаблюдение", "доступ 24/7"] },
-    { id: 2, city: "Казань", name: "БоксХаус Горки", addr: "пр. Ямашева, 36", price: 1900, sizeMin: 1, sizeMax: 8, rating: 4.5, distance: 2.8,
-      features: ["видеонаблюдение", "отопление"] },
-    { id: 3, city: "Новосибирск", name: "Мой Склад НСК", addr: "ул. Кошурникова, 25", price: 2100, sizeMin: 2, sizeMax: 15, rating: 4.7, distance: 3.1,
-      features: ["охрана 24/7", "погрузка"] },
-    { id: 4, city: "Новосибирск", name: "Кладовка.ру", addr: "ул. Ватутина, 91", price: 1700, sizeMin: 1, sizeMax: 6, rating: 4.2, distance: 5.4,
-      features: ["доступ 24/7"] },
-    { id: 5, city: "Екатеринбург", name: "СтопХранение Уралмаш", addr: "ул. Кировградская, 14", price: 2600, sizeMin: 3, sizeMax: 20, rating: 4.9, distance: 0.9,
-      features: ["охрана 24/7", "видеонаблюдение", "отопление", "доступ 24/7"] },
-    { id: 6, city: "Нижний Новгород", name: "БоксСити Автозавод", addr: "пр. Ленина, 100", price: 1800, sizeMin: 1, sizeMax: 10, rating: 4.4, distance: 4.0,
-      features: ["видеонаблюдение", "погрузка"] },
-    { id: 7, city: "Петрозаводск", name: "СевСклад Древлянка", addr: "ул. Кораблестроителей, 3", price: 1500, sizeMin: 1, sizeMax: 8, rating: 4.6, distance: 1.7,
-      features: ["отопление", "доступ 24/7"] },
-    { id: 8, city: "Петрозаводск", name: "Куб-Хранение Центр", addr: "пр. Ленина, 22", price: 2200, sizeMin: 2, sizeMax: 12, rating: 4.3, distance: 0.6,
-      features: ["охрана 24/7", "видеонаблюдение"] }
-  ];
+  // ---------- справочники ----------
+  var CATEGORY_LABELS = {
+    self_storage: "самохранение",
+    warehouse_rental: "аренда склада",
+    logistics: "логистика",
+    wholesale: "опт",
+    industrial: "промышленный"
+  };
+  var SOURCE_LABELS = { dgis: "2ГИС", avito: "Avito" };
+  var SERVICE_FEE = 500;
 
   var CALC_ITEMS = [
     { key: "box", label: "Коробки (10 шт.)", volume: 1 },
@@ -286,34 +265,60 @@
     { key: "skis", label: "Лыжи/сноуборд", volume: 0.4 }
   ];
 
-  var COMMISSION = 6000;
-
   // ---------- состояние ----------
-  var state = { city: CITIES[0], size: 0, maxPrice: 15000, features: [], sort: "price" };
+  var state = { city: "", size: 0, maxPrice: 15000, sort: "price" };
   var calcCounts = {};
+  var currentStorages = [];
 
-  // ---------- инициализация ----------
-  var citySelect = document.getElementById("f-city");
-  CITIES.forEach(function (c) {
-    var opt = document.createElement("option");
-    opt.value = c; opt.textContent = c;
-    citySelect.appendChild(opt);
-  });
-  citySelect.value = state.city;
+  // ---------- загрузка данных ----------
+  function parseSizeM3(boxSizes) {
+    if (!boxSizes) return null;
+    var m = String(boxSizes).match(/[\d.,]+/);
+    if (!m) return null;
+    var n = parseFloat(m[0].replace(",", "."));
+    return isNaN(n) ? null : n;
+  }
+
+  function loadCities() {
+    return fetch("/api/cities").then(function (r) { return r.json(); }).then(function (cities) {
+      var citySelect = document.getElementById("f-city");
+      citySelect.innerHTML = "";
+      (cities || []).forEach(function (c) {
+        var opt = document.createElement("option");
+        opt.value = c; opt.textContent = c;
+        citySelect.appendChild(opt);
+      });
+      if (cities && cities.length) {
+        state.city = cities[0];
+        citySelect.value = state.city;
+      }
+    });
+  }
+
+  function loadStorages(city) {
+    return fetch("/api/storages?city=" + encodeURIComponent(city))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        currentStorages = Array.isArray(data) ? data : [];
+        renderCards();
+      });
+  }
 
   function renderCards() {
-    var list = STORAGES.filter(function (s) {
-      if (s.city !== state.city) return false;
-      if (s.price > state.maxPrice) return false;
-      if (state.size && s.sizeMax < state.size) return false;
-      if (state.features.length && !state.features.every(function (f) { return s.features.indexOf(f) !== -1; })) return false;
+    var list = currentStorages.filter(function (s) {
+      if (s.price_from != null && s.price_from > state.maxPrice) return false;
+      if (state.size) {
+        var size = parseSizeM3(s.box_sizes);
+        if (size != null && size < state.size) return false;
+      }
       return true;
     });
 
     list.sort(function (a, b) {
-      if (state.sort === "price") return a.price - b.price;
-      if (state.sort === "rating") return b.rating - a.rating;
-      return a.distance - b.distance;
+      if (state.sort === "name") return (a.name || "").localeCompare(b.name || "", "ru");
+      var ap = a.price_from == null ? Infinity : a.price_from;
+      var bp = b.price_from == null ? Infinity : b.price_from;
+      return ap - bp;
     });
 
     var wrap = document.getElementById("cards");
@@ -330,14 +335,20 @@
     list.forEach(function (s) {
       var card = document.createElement("div");
       card.className = "card";
+      var priceHtml = s.price_from != null
+        ? '<b>' + Math.round(s.price_from).toLocaleString("ru-RU") + ' ₽</b><span> / мес' + (s.box_sizes ? ", " + s.box_sizes : "") + '</span>'
+        : '<b>цена по запросу</b>' + (s.box_sizes ? '<span>, ' + s.box_sizes + '</span>' : '');
+      var badges = [CATEGORY_LABELS[s.category] || s.category, SOURCE_LABELS[s.source] || s.source]
+        .filter(Boolean)
+        .map(function (b) { return '<span class="badge">' + b + '</span>'; })
+        .join("");
       card.innerHTML =
         '<div class="card-top">' +
-          '<div><h3>' + s.name + '</h3><div class="addr">' + s.addr + ' · ' + s.distance + ' км</div></div>' +
-          '<div class="rating"><span class="star">★</span>' + s.rating.toFixed(1) + '</div>' +
+          '<div><h3>' + (s.name || "Без названия") + '</h3><div class="addr">' + (s.address || s.city) + '</div></div>' +
         '</div>' +
-        '<div class="badges">' + s.features.map(function (f) { return '<span class="badge">' + f + '</span>'; }).join("") + '</div>' +
+        '<div class="badges">' + badges + '</div>' +
         '<div class="card-bottom">' +
-          '<div class="price"><b>' + s.price.toLocaleString("ru-RU") + ' ₽</b><span> / мес, от ' + s.sizeMin + ' м³</span></div>' +
+          '<div class="price">' + priceHtml + '</div>' +
           '<button class="btn btn-primary btn-sm" data-book="' + s.id + '">Забронировать</button>' +
         '</div>';
       wrap.appendChild(card);
@@ -358,10 +369,16 @@
   }
 
   // ---------- фильтры ----------
+  var citySelect = document.getElementById("f-city");
+  citySelect.addEventListener("change", function () {
+    state.city = citySelect.value;
+    loadStorages(state.city);
+  });
+
   document.getElementById("search-btn").addEventListener("click", function () {
     state.city = citySelect.value;
     state.size = Number(document.getElementById("f-size").value);
-    renderCards();
+    loadStorages(state.city);
   });
 
   var priceRange = document.getElementById("f-price");
@@ -371,23 +388,15 @@
     renderCards();
   });
 
-  document.querySelectorAll('.filter-group input[type="checkbox"]').forEach(function (cb) {
-    cb.addEventListener("change", function () {
-      state.features = Array.from(document.querySelectorAll('.filter-group input[type="checkbox"]:checked')).map(function (c) { return c.value; });
-      renderCards();
-    });
-  });
-
   document.getElementById("sort-select").addEventListener("change", function (e) {
     state.sort = e.target.value;
     renderCards();
   });
 
   document.getElementById("reset-filters").addEventListener("click", function () {
-    state.maxPrice = 15000; state.features = [];
+    state.maxPrice = 15000;
     priceRange.value = 15000;
     document.getElementById("f-price-val").textContent = "15 000 ₽";
-    document.querySelectorAll('.filter-group input[type="checkbox"]').forEach(function (c) { c.checked = false; });
     renderCards();
   });
 
@@ -433,17 +442,17 @@
   var modal = document.getElementById("modal");
 
   function openBookingModal(storageId) {
-    var s = STORAGES.filter(function (x) { return x.id === storageId; })[0];
+    var s = currentStorages.filter(function (x) { return x.id === storageId; })[0];
     if (!s) return;
+    var priceLine = s.price_from != null
+      ? Math.round(s.price_from).toLocaleString("ru-RU") + ' ₽/мес' + (s.box_sizes ? ', ' + s.box_sizes : '')
+      : 'цена по запросу' + (s.box_sizes ? ', ' + s.box_sizes : '');
     modal.innerHTML =
       '<button class="close-x" id="modal-close">×</button>' +
-      '<h2>' + s.name + '</h2>' +
-      '<p class="sub">' + s.addr + '</p>' +
-      '<label for="bk-size">Размер бокса</label>' +
-      '<select id="bk-size">' +
-        '<option value="' + s.sizeMin + '">от ' + s.sizeMin + ' м³ — ' + s.price.toLocaleString("ru-RU") + ' ₽/мес</option>' +
-        '<option value="' + s.sizeMax + '">до ' + s.sizeMax + ' м³ — ' + Math.round(s.price * (s.sizeMax / s.sizeMin)).toLocaleString("ru-RU") + ' ₽/мес</option>' +
-      '</select>' +
+      '<h2>' + (s.name || "Без названия") + '</h2>' +
+      '<p class="sub">' + (s.address || s.city) + '</p>' +
+      '<label>Условия</label>' +
+      '<div style="padding:10px 12px;border:1px solid var(--border);border-radius:9px">' + priceLine + '</div>' +
       '<div class="row2">' +
         '<div><label for="bk-from">С</label><input type="date" id="bk-from"></div>' +
         '<div><label for="bk-months">Срок, мес.</label><input type="number" id="bk-months" min="1" value="1"></div>' +
@@ -454,7 +463,7 @@
         '<button class="btn" id="bk-cancel" type="button">Отмена</button>' +
         '<button class="btn btn-primary" id="bk-confirm" type="button">Подтвердить бронь</button>' +
       '</div>' +
-      '<div class="fee-note">Комиссия сервиса ' + COMMISSION.toLocaleString("ru-RU") + ' ₽ удерживается со склада, для вас бесплатно.</div>';
+      '<div class="fee-note">Сервисный сбор ' + SERVICE_FEE.toLocaleString("ru-RU") + ' ₽ за оформление заявки через «Куб», оплачивается при бронировании.</div>';
 
     overlay.classList.add("open");
     document.getElementById("modal-close").addEventListener("click", closeModal);
@@ -487,7 +496,9 @@
     root.setAttribute("data-theme", current === "dark" ? "light" : "dark");
   });
 
-  renderCards();
+  loadCities().then(function () {
+    if (state.city) loadStorages(state.city);
+  });
   updateCalcResult();
 })();
 </script>
