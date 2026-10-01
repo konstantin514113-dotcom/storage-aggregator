@@ -1,11 +1,13 @@
 """Сервер прототипа kubometr.html для Railway: статика + JSON API к Postgres.
 
-GET /api/cities             — города, в которых есть записи (отсортированы по числу складов)
-GET /api/storages?city=...  — склады города (дубли по duplicate_of уже исключены)
+GET  /api/cities             — города, в которых есть записи (отсортированы по числу складов)
+GET  /api/storages?city=...  — склады города (дубли по duplicate_of уже исключены)
+POST /api/bookings           — создать заявку на бронь {storage_id, phone, date_from?, months?}
 """
 import http.server
 import json
 import os
+import re
 import sys
 from urllib.parse import parse_qs, urlparse
 
@@ -14,6 +16,8 @@ from db.connection import get_cursor
 
 PORT = int(os.environ.get("PORT", 8080))
 ROOT = os.path.dirname(os.path.abspath(__file__))
+SERVICE_FEE = 500  # должен совпадать с SERVICE_FEE в kubometr.html
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -30,6 +34,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/storages":
             return self.send_storages()
         return super().do_GET()
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path == "/api/bookings":
+            return self.create_booking()
+        self.send_json({"error": "not found"}, 404)
 
     def send_json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
@@ -75,6 +85,55 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 )
                 rows = cur.fetchall()
             self.send_json(rows)
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+    def create_booking(self):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            return self.send_json({"error": "invalid json"}, 400)
+
+        storage_id = payload.get("storage_id")
+        phone = (payload.get("phone") or "").strip()
+        date_from = (payload.get("date_from") or "").strip() or None
+        try:
+            months = max(1, int(payload.get("months") or 1))
+        except (TypeError, ValueError):
+            months = 1
+
+        if not isinstance(storage_id, int):
+            return self.send_json({"error": "storage_id must be an integer"}, 400)
+        if len(phone) < 5:
+            return self.send_json({"error": "phone is required"}, 400)
+        if date_from and not DATE_RE.match(date_from):
+            return self.send_json({"error": "date_from must be YYYY-MM-DD"}, 400)
+
+        try:
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM storages WHERE id = %(id)s AND duplicate_of IS NULL",
+                    {"id": storage_id},
+                )
+                if not cur.fetchone():
+                    return self.send_json({"error": "storage not found"}, 404)
+                cur.execute(
+                    """
+                    INSERT INTO bookings (storage_id, client_phone, date_from, months, service_fee)
+                    VALUES (%(storage_id)s, %(phone)s, %(date_from)s, %(months)s, %(fee)s)
+                    RETURNING id
+                    """,
+                    {
+                        "storage_id": storage_id,
+                        "phone": phone,
+                        "date_from": date_from,
+                        "months": months,
+                        "fee": SERVICE_FEE,
+                    },
+                )
+                booking_id = cur.fetchone()["id"]
+            self.send_json({"id": booking_id, "status": "new"}, 201)
         except Exception as e:
             self.send_json({"error": str(e)}, 500)
 

@@ -463,14 +463,49 @@
         '<button class="btn" id="bk-cancel" type="button">Отмена</button>' +
         '<button class="btn btn-primary" id="bk-confirm" type="button">Подтвердить бронь</button>' +
       '</div>' +
+      '<div class="fee-note" id="bk-error" style="color:var(--accent-dark)"></div>' +
       '<div class="fee-note">Сервисный сбор ' + SERVICE_FEE.toLocaleString("ru-RU") + ' ₽ за оформление заявки через «Куб», оплачивается при бронировании.</div>';
 
     overlay.classList.add("open");
     document.getElementById("modal-close").addEventListener("click", closeModal);
     document.getElementById("bk-cancel").addEventListener("click", closeModal);
     document.getElementById("bk-confirm").addEventListener("click", function () {
-      showBookingSuccess(s);
+      submitBooking(s);
     });
+  }
+
+  function submitBooking(s) {
+    var phone = document.getElementById("bk-phone").value.trim();
+    var errEl = document.getElementById("bk-error");
+    if (phone.length < 5) {
+      errEl.textContent = "Укажите телефон для связи.";
+      return;
+    }
+    errEl.textContent = "";
+    var confirmBtn = document.getElementById("bk-confirm");
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "Отправляем…";
+
+    fetch("/api/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storage_id: s.id,
+        phone: phone,
+        date_from: document.getElementById("bk-from").value || null,
+        months: Number(document.getElementById("bk-months").value) || 1
+      })
+    })
+      .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.data && res.data.error ? res.data.error : "Ошибка отправки");
+        showBookingSuccess(s);
+      })
+      .catch(function (err) {
+        errEl.textContent = "Не получилось отправить заявку: " + err.message + ". Попробуйте ещё раз.";
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Подтвердить бронь";
+      });
   }
 
   function showBookingSuccess(s) {

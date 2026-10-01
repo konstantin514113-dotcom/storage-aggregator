@@ -41,3 +41,17 @@ CREATE INDEX IF NOT EXISTS idx_storages_city ON storages (city);
 CREATE INDEX IF NOT EXISTS idx_storages_category ON storages (category);
 CREATE INDEX IF NOT EXISTS idx_storages_geo ON storages (lat, lon);
 CREATE INDEX IF NOT EXISTS idx_storages_duplicate_of ON storages (duplicate_of);
+
+CREATE TABLE IF NOT EXISTS bookings (
+    id              SERIAL PRIMARY KEY,
+    storage_id      INTEGER NOT NULL REFERENCES storages(id),
+    client_phone    TEXT NOT NULL,
+    date_from       DATE,
+    months          INTEGER NOT NULL DEFAULT 1,
+    service_fee     NUMERIC,
+    status          TEXT NOT NULL DEFAULT 'new',  -- new | confirmed | cancelled
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookings_storage ON bookings (storage_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings (status);
