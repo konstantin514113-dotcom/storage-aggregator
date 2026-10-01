@@ -7,6 +7,7 @@ GET  /sklady/<slug>          — SEO-страница города: свой tit
                                  карточки в исходном HTML (не только через JS), чтобы индексировалось
 GET  /sitemap.xml, /robots.txt
 """
+import base64
 import html
 import http.server
 import json
@@ -23,6 +24,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_URL = os.environ.get("SITE_URL", "https://storage-aggregator-web-production.up.railway.app")
 SERVICE_FEE = 500  # должен совпадать с SERVICE_FEE в kubometr.html
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
@@ -101,7 +104,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.send_robots()
         if path.startswith("/sklady/"):
             return self.send_city_page(path[len("/sklady/"):])
+        if path == "/admin":
+            return self.send_admin()
         return super().do_GET()
+
+    def check_admin_auth(self) -> bool:
+        if not ADMIN_PASSWORD:
+            self.send_html(
+                "<h1>Админ-панель не настроена</h1>"
+                "<p>Задайте переменную окружения ADMIN_PASSWORD на Railway.</p>",
+                503,
+            )
+            return False
+        auth = self.headers.get("Authorization", "")
+        ok = False
+        if auth.startswith("Basic "):
+            try:
+                user, _, pwd = base64.b64decode(auth[6:]).decode("utf-8").partition(":")
+                ok = user == ADMIN_USER and pwd == ADMIN_PASSWORD
+            except Exception:
+                ok = False
+        if not ok:
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Kub Admin"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return False
+        return True
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -223,6 +252,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def send_robots(self):
         self.send_text(f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n")
+
+    # ---------- админ-панель ----------
+    def send_admin(self):
+        if not self.check_admin_auth():
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        city = (qs.get("city") or [""])[0]
+        category = (qs.get("category") or [""])[0]
+        sort = (qs.get("sort") or ["price"])[0]
+        try:
+            summary = fetch_admin_summary()
+            storages = fetch_admin_storages(city or None, category or None, sort)
+            bookings = fetch_bookings()
+        except Exception as e:
+            return self.send_html(f"<h1>Ошибка базы данных</h1><p>{html.escape(str(e))}</p>", 500)
+        self.send_html(render_admin_page(summary, storages, bookings, city, category, sort))
 
     def create_booking(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
@@ -351,6 +396,170 @@ def render_cards_html(storages, limit=60) -> str:
             "</div>"
         )
     return "".join(parts)
+
+
+def fetch_admin_summary():
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT city,
+                   COUNT(*) AS n,
+                   COUNT(*) FILTER (WHERE category = 'self_storage') AS n_self,
+                   MIN(price_from)::float AS min_price,
+                   MAX(price_from)::float AS max_price
+            FROM storages
+            WHERE duplicate_of IS NULL
+            GROUP BY city
+            ORDER BY n DESC
+            """
+        )
+        return cur.fetchall()
+
+
+def fetch_admin_storages(city, category, sort):
+    where = ["duplicate_of IS NULL"]
+    params = {}
+    if city:
+        where.append("city = %(city)s")
+        params["city"] = city
+    if category:
+        where.append("category = %(category)s")
+        params["category"] = category
+    order = "name" if sort == "name" else "price_from ASC NULLS LAST, name"
+    query = (
+        "SELECT id, source, category, city, name, address, "
+        "price_from::float AS price_from, box_sizes, phone "
+        "FROM storages WHERE " + " AND ".join(where) + f" ORDER BY {order} LIMIT 500"
+    )
+    with get_cursor(commit=False) as cur:
+        cur.execute(query, params)
+        return cur.fetchall()
+
+
+def fetch_bookings(limit=100):
+    with get_cursor(commit=False) as cur:
+        cur.execute(
+            """
+            SELECT b.id, b.created_at, b.client_phone, b.date_from, b.months,
+                   b.service_fee::float AS service_fee, b.status,
+                   s.name AS storage_name, s.city AS storage_city
+            FROM bookings b
+            JOIN storages s ON s.id = b.storage_id
+            ORDER BY b.created_at DESC
+            LIMIT %(limit)s
+            """,
+            {"limit": limit},
+        )
+        return cur.fetchall()
+
+
+def render_admin_page(summary, storages, bookings, city, category, sort) -> str:
+    total = sum(r["n"] for r in summary)
+    summary_rows = "".join(
+        f"<tr><td>{html.escape(r['city'])}</td><td>{r['n']}</td><td>{r['n_self']}</td>"
+        f"<td>{int(r['min_price']) if r['min_price'] is not None else '—'}</td>"
+        f"<td>{int(r['max_price']) if r['max_price'] is not None else '—'}</td></tr>"
+        for r in summary
+    )
+
+    city_options = "".join(
+        f'<option value="{html.escape(r["city"])}"{" selected" if r["city"] == city else ""}>{html.escape(r["city"])}</option>'
+        for r in summary
+    )
+    cat_options = "".join(
+        f'<option value="{k}"{" selected" if k == category else ""}>{v}</option>'
+        for k, v in _CATEGORY_LABELS.items()
+    )
+
+    storage_rows = "".join(
+        "<tr>"
+        f"<td>{s['id']}</td>"
+        f"<td>{_SOURCE_LABELS.get(s['source'], s['source'])}</td>"
+        f"<td>{_CATEGORY_LABELS.get(s['category'], s['category'] or '—')}</td>"
+        f"<td>{html.escape(s['city'] or '')}</td>"
+        f"<td>{html.escape(s['name'] or '—')}</td>"
+        f"<td>{html.escape(s['address'] or '—')}</td>"
+        f"<td>{int(s['price_from']) if s['price_from'] is not None else '—'}</td>"
+        f"<td>{html.escape(s['box_sizes'] or '—')}</td>"
+        f"<td>{html.escape(s['phone'] or '—')}</td>"
+        "</tr>"
+        for s in storages
+    )
+
+    status_labels = {"new": "новая", "confirmed": "подтверждена", "cancelled": "отменена"}
+    booking_rows = "".join(
+        "<tr>"
+        f"<td>{b['id']}</td>"
+        f"<td>{html.escape(str(b['created_at']))}</td>"
+        f"<td>{html.escape(b['storage_name'] or '—')} ({html.escape(b['storage_city'] or '')})</td>"
+        f"<td>{html.escape(b['client_phone'])}</td>"
+        f"<td>{html.escape(str(b['date_from']) if b['date_from'] else '—')}</td>"
+        f"<td>{b['months']}</td>"
+        f"<td>{int(b['service_fee']) if b['service_fee'] is not None else '—'}</td>"
+        f"<td>{html.escape(status_labels.get(b['status'], b['status']))}</td>"
+        "</tr>"
+        for b in bookings
+    )
+
+    return f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Куб — админ-панель</title>
+<style>
+  body {{ font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px;
+    background: #f6f5f2; color: #1c1b19; }}
+  h1 {{ margin: 0 0 4px; }}
+  h2 {{ margin: 32px 0 10px; font-size: 18px; }}
+  .muted {{ color: #726e65; font-size: 14px; margin-bottom: 20px; }}
+  table {{ border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; }}
+  th, td {{ padding: 8px 10px; border-bottom: 1px solid #e4e1da; text-align: left; font-size: 13px; }}
+  th {{ background: #fbe9df; color: #a5451f; position: sticky; top: 0; }}
+  tr:hover td {{ background: #fafaf8; }}
+  form {{ margin: 10px 0 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
+  select, button {{ font: inherit; padding: 7px 10px; border-radius: 7px; border: 1px solid #e4e1da; }}
+  button {{ background: #c65a2e; color: #fff; border: none; cursor: pointer; }}
+  .scroll {{ max-height: 70vh; overflow: auto; border: 1px solid #e4e1da; border-radius: 8px; }}
+</style></head>
+<body>
+  <h1>Куб — админ-панель</h1>
+  <div class="muted">Всего складов: {total} · заявок: {len(bookings)}</div>
+
+  <h2>Сводка по городам</h2>
+  <table>
+    <tr><th>Город</th><th>Всего</th><th>self_storage</th><th>Мин. цена</th><th>Макс. цена</th></tr>
+    {summary_rows}
+  </table>
+
+  <h2>Склады</h2>
+  <form method="get" action="/admin">
+    <select name="city"><option value="">Все города</option>{city_options}</select>
+    <select name="category"><option value="">Все категории</option>{cat_options}</select>
+    <select name="sort">
+      <option value="price"{" selected" if sort == "price" else ""}>По цене</option>
+      <option value="name"{" selected" if sort == "name" else ""}>По названию</option>
+    </select>
+    <button type="submit">Применить</button>
+    <a href="/admin" style="margin-left:6px">Сбросить</a>
+  </form>
+  <div class="scroll">
+  <table>
+    <tr><th>ID</th><th>Источник</th><th>Категория</th><th>Город</th><th>Название</th>
+        <th>Адрес</th><th>Цена</th><th>Размер</th><th>Телефон</th></tr>
+    {storage_rows}
+  </table>
+  </div>
+  <div class="muted">Показаны первые 500 записей по текущему фильтру.</div>
+
+  <h2>Заявки (последние {len(bookings)})</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>ID</th><th>Создана</th><th>Склад</th><th>Телефон клиента</th>
+        <th>С даты</th><th>Срок, мес.</th><th>Сбор, ₽</th><th>Статус</th></tr>
+    {booking_rows or '<tr><td colspan="8">Пока нет заявок</td></tr>'}
+  </table>
+  </div>
+</body></html>"""
 
 
 def render_city_nav(cities, current=None) -> str:
