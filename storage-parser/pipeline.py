@@ -50,6 +50,15 @@ def is_relevant(name: str) -> bool:
     return not any(kw in lname for kw in config.TITLE_EXCLUDE_KEYWORDS)
 
 
+def resolve_category(query_category: str, rubrics: str) -> str:
+    # Рубрика 2ГИС — более точный сигнал, чем то, каким текстовым запросом
+    # объект был найден (см. config.RUBRIC_CATEGORY_OVERRIDES).
+    for substr, override in config.RUBRIC_CATEGORY_OVERRIDES.items():
+        if substr in (rubrics or ""):
+            return override
+    return query_category
+
+
 def upsert_storage(cur, city: str, region: str, category: str, item) -> None:
     # category намеренно не перетирается при повторном попадании по другому запросу —
     # остаётся первая категория, по которой запись была найдена.
@@ -111,15 +120,22 @@ def run(min_population: int, only_cities: list[str] | None, categories: list[str
 
                     if dry_run:
                         csv_rows.extend(
-                            {"city": city["city"], "region": city.get("region", ""), "category": category, "query": query, **vars(it)}
+                            {
+                                "city": city["city"], "region": city.get("region", ""),
+                                "category": resolve_category(category, it.rubrics), "query": query, **vars(it),
+                            }
                             for it in items
                         )
                         continue
 
                     with get_cursor() as cur:
                         for it in items:
-                            upsert_storage(cur, city["city"], city.get("region", ""), category, it)
-                            csv_rows.append({"city": city["city"], "region": city.get("region", ""), "category": category, "query": query, **vars(it)})
+                            resolved = resolve_category(category, it.rubrics)
+                            upsert_storage(cur, city["city"], city.get("region", ""), resolved, it)
+                            csv_rows.append({
+                                "city": city["city"], "region": city.get("region", ""),
+                                "category": resolved, "query": query, **vars(it),
+                            })
     finally:
         client.close()
 
