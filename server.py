@@ -7,7 +7,6 @@ GET  /sklady/<slug>          — SEO-страница города: свой tit
                                  карточки в исходном HTML (не только через JS), чтобы индексировалось
 GET  /sitemap.xml, /robots.txt
 """
-import base64
 import html
 import http.server
 import json
@@ -24,8 +23,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE_URL = os.environ.get("SITE_URL", "https://storage-aggregator-web-production.up.railway.app")
 SERVICE_FEE = 500  # должен совпадать с SERVICE_FEE в kubometr.html
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
@@ -107,30 +104,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/admin":
             return self.send_admin()
         return super().do_GET()
-
-    def check_admin_auth(self) -> bool:
-        if not ADMIN_PASSWORD:
-            self.send_html(
-                "<h1>Админ-панель не настроена</h1>"
-                "<p>Задайте переменную окружения ADMIN_PASSWORD на Railway.</p>",
-                503,
-            )
-            return False
-        auth = self.headers.get("Authorization", "")
-        ok = False
-        if auth.startswith("Basic "):
-            try:
-                user, _, pwd = base64.b64decode(auth[6:]).decode("utf-8").partition(":")
-                ok = user == ADMIN_USER and pwd == ADMIN_PASSWORD
-            except Exception:
-                ok = False
-        if not ok:
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Kub Admin"')
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return False
-        return True
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -255,8 +228,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     # ---------- админ-панель ----------
     def send_admin(self):
-        if not self.check_admin_auth():
-            return
         qs = parse_qs(urlparse(self.path).query)
         city = (qs.get("city") or [""])[0]
         category = (qs.get("category") or [""])[0]
