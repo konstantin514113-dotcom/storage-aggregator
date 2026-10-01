@@ -13,12 +13,15 @@ self_storage — как Booking: клиент ищет и бронирует б�
 storage-aggregator/
 ├── cities.csv                  # 145 городов РФ от 100 тыс. населения (см. "Список городов" ниже)
 ├── avito_import_template.csv   # шаблон для storage-parser/import_avito.py
-├── count_cities.py             # подсчёт складов по городам, 1 запрос 2ГИС на город
 ├── kubometr.html                # прототип сайта (поиск/фильтры/карточки/бронь/калькулятор), тестовые данные
 ├── docs/
-│   └── city_counts_100k.csv    # результат count_cities.py по всем 145 городам
-├── scripts/
-│   └── fetch_cities.py         # сборка полного cities.csv из GeoNames (нужен доступ в интернет)
+│   └── city_counts_100k.csv    # результат scripts/count_cities.py по всем 145 городам
+├── scripts/                    # вспомогательные скрипты сбора (не часть основного пайплайна pipeline.py)
+│   ├── count_cities.py         # подсчёт складов по городам, 1 запрос 2ГИС на город
+│   ├── fetch_cities.py         # сборка полного cities.csv из GeoNames (нужен доступ в интернет)
+│   ├── dump_cities_to_log.py   # разовый прогон fetch_cities.py на Railway с выводом CSV в лог деплоя
+│   ├── dry_run_pipeline_to_log.py # разовый прогон pipeline.py --dry-run на Railway с выводом в лог деплоя
+│   └── city_name_overrides.csv # geonameid → корректное русское название (см. fetch_cities.py)
 └── storage-parser/
     ├── config.py                # чтение .env / переменных окружения
     ├── requirements.txt
@@ -101,7 +104,7 @@ ADMIN_FEATURE_CODES — административные центры разно
 
 ### Разведка на живых данных (Казань, демо-ключ)
 
-Прогнали `count_cities.py --all-queries` и `pipeline.py --dry-run` на Казани и выяснили
+Прогнали `scripts/count_cities.py --all-queries` и `pipeline.py --dry-run` на Казани и выяснили
 два реальных ограничения API, которых нет в официальной документации в свободном доступе:
 
 - `page_size` — от 1 до 10 (не 50), `page` — от 1 до 5. То есть **максимум 50
@@ -148,7 +151,7 @@ self_storage через рубрику, остальные категории �
 
 ## План на демо-ключ 2ГИС (1000 запросов)
 
-1. ✅ Сделано — `count_cities.py --min-population 100000` по всем 145 городам, итог в
+1. ✅ Сделано — `scripts/count_cities.py --min-population 100000` по всем 145 городам, итог в
    `docs/city_counts_100k.csv`. Потрачено 145 запросов на демо-ключ.
 2. ✅ Сделано на Казани — см. «Разведка на живых данных» выше.
 3. `python storage-parser/pipeline.py --min-population <порог> [--categories ...]` —
@@ -175,7 +178,7 @@ self_storage через рубрику, остальные категории �
 cd storage-parser
 pip install -r requirements.txt
 python db/connection.py           # применить schema.sql к Postgres
-python ../count_cities.py --min-population 100000
+python ../scripts/count_cities.py --min-population 100000
 python pipeline.py --min-population 100000
 ```
 

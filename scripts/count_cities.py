@@ -1,8 +1,8 @@
 """Подсчёт складов по городам — 1 запрос к 2ГИС на город (или все формулировки, если --all-queries).
 
 Нужен для планирования расхода демо-ключа (1000 запросов), см. README:
-1. python count_cities.py --min-population 100000          # общий запрос "склад", ~170 запросов
-2. python count_cities.py --city Казань --all-queries       # тест всех формулировок по категориям в одном городе
+1. python scripts/count_cities.py --min-population 100000          # общий запрос "склад", ~170 запросов
+2. python scripts/count_cities.py --city Казань --all-queries       # тест всех формулировок по категориям в одном городе
 
 Пишет CSV output/city_counts.csv: city,region,population,category,query,count
 """
@@ -11,7 +11,7 @@ import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "storage-parser"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage-parser"))
 import config
 from pipeline import load_cities
 from sources.dgis import DgisClient
