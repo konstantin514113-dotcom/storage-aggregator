@@ -1,0 +1,9 @@
+{
+  "name": "Car TV",
+  "short_name": "Car TV",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0f12",
+  "theme_color": "#0d0f12",
+  "icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png" }]
+}

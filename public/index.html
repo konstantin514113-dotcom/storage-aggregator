@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Car TV">
+<meta name="theme-color" content="#0d0f12">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<title>Car TV</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* Layout: плеер сверху на всю ширину, под ним поиск, группы и крупный список каналов под палец */
+:root{
+  --bg:#0d0f12; --panel:#15181d; --line:#252a31; --fg:#eceef1; --mute:#8a929c;
+  --amber:#ffb547; --amber-dim:#3a2c14; --live:#ff5a4e;
+  --f-ui:"Onest",-apple-system,system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:16px}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+.stage{position:sticky;top:0;z-index:5;background:#000}
+.screen{position:relative;width:100%;aspect-ratio:16/9;max-height:56vh;background:#000;margin:0 auto}
+video,iframe{width:100%;height:100%;display:block;background:#000;border:0}
+iframe{position:absolute;inset:0}
+.addlink{margin-bottom:0}
+.addlink+.err{margin:6px 0 12px}
+.del{width:44px;height:44px;border:0;background:transparent;color:var(--mute);border-radius:10px;font-size:1.1rem}
+.row.wide{grid-template-columns:44px 1fr auto auto}
+.idle{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--mute);padding:16px;pointer-events:none}
+.idle b{display:block;color:var(--fg);font-size:1.05rem;margin-bottom:4px}
+
+.bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.now{flex:1;min-width:0}
+.now .ch{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now .st{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.now .st.live{color:var(--live)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:#1c2027;font-weight:500}
+.btn.primary{background:var(--amber);border-color:var(--amber);color:#1a1205;font-weight:700}
+.btn svg{width:20px;height:20px}
+.btn[disabled]{opacity:.4}
+
+main{padding-inline:16px;padding-block:14px 40px;max-width:900px;margin:0 auto}
+.tools{display:flex;gap:10px}
+.search{flex:1;min-width:0;min-height:48px;border-radius:12px;border:1px solid var(--line);background:var(--panel);padding:0 14px}
+.groups{display:flex;gap:8px;overflow-x:auto;padding-block:12px;scrollbar-width:none}
+.groups::-webkit-scrollbar{display:none}
+.chip{flex:none;min-height:38px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--mute);white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--amber-dim);border-color:var(--amber);color:var(--amber)}
+
+.list{display:grid;gap:6px;list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:12px;min-height:64px;padding:8px 8px 8px 10px;border-radius:12px;background:var(--panel);border:1px solid transparent}
+.row.on{border-color:var(--amber)}
+.row .play{all:unset;display:contents;cursor:pointer}
+.logo{width:44px;height:44px;border-radius:9px;background:#0a0b0d;display:grid;place-items:center;overflow:hidden;font-family:var(--f-mono);font-size:.8rem;color:var(--mute)}
+.logo img{width:100%;height:100%;object-fit:contain}
+.meta{min-width:0}
+.meta .n{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .g{font-size:.8rem;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fav{width:44px;height:44px;border:0;background:transparent;color:var(--mute);border-radius:10px;font-size:1.3rem}
+.fav[aria-pressed="true"]{color:var(--amber)}
+.count{font-family:var(--f-mono);font-size:.75rem;color:var(--mute);letter-spacing:.05em;margin:0 0 8px}
+.empty{color:var(--mute);text-align:center;padding:30px 0}
+
+/* Окно настроек */
+dialog{width:min(560px,calc(100% - 32px));border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--fg);padding:22px}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog h2{margin:0 0 4px;font-size:1.3rem}
+dialog p{margin:0 0 16px;color:var(--mute);line-height:1.45}
+.field{display:grid;gap:6px;margin-bottom:14px}
+.field label{font-size:.8rem;color:var(--mute)}
+.field input,.field textarea{width:100%;min-height:48px;border-radius:10px;border:1px solid var(--line);background:var(--bg);padding:10px 12px;font:inherit;color:var(--fg)}
+.field textarea{min-height:90px;font-family:var(--f-mono);font-size:.8rem;resize:vertical}
+.actions{display:flex;flex-wrap:wrap;gap:10px}
+.err{color:var(--live);min-height:1.2em;margin:6px 0 0;font-size:.9rem}
+.howto{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:.9rem;color:var(--mute);line-height:1.5}
+.howto ol{margin:6px 0 0;padding-left:20px}
+.howto b{color:var(--fg)}
+.file{position:relative;overflow:hidden}
+.file input{position:absolute;inset:0;opacity:0}
+@media (prefers-reduced-motion:no-preference){.row{transition:border-color .15s}}
+</style>
+</head>
+<body>
+
+<section class="stage">
+  <div class="screen">
+    <video id="v" playsinline controls x-webkit-airplay="allow" preload="none"></video>
+    <iframe id="f" hidden title="Плеер сервиса" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <div class="idle" id="idle"><div><b>Выберите канал</b>Потом нажмите AirPlay и выберите машину</div></div>
+  </div>
+  <div class="bar">
+    <div class="now">
+      <div class="ch" id="nowName">Ничего не играет</div>
+      <div class="st" id="nowState">Готов</div>
+    </div>
+    <button class="btn primary" id="airplay" title="Вывести на CarPlay" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="M12 15l5 6H7z" fill="currentColor"/></svg>
+      AirPlay
+    </button>
+    <button class="btn" id="openSetup" title="Плейлист">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/></svg>
+    </button>
+  </div>
+</section>
+
+<main>
+  <form class="tools addlink" id="linkForm">
+    <input class="search" id="linkUrl" type="url" inputmode="url" placeholder="Ссылка: YouTube, Rutube, VK, Twitch, .m3u8" autocomplete="off" aria-label="Ссылка на видео">
+    <button class="btn primary" type="submit">Открыть</button>
+  </form>
+  <p class="err" id="linkErr"></p>
+  <div class="tools">
+    <input class="search" id="q" type="search" placeholder="Поиск канала" autocomplete="off">
+  </div>
+  <div class="groups" id="groups" role="toolbar" aria-label="Группы"></div>
+  <p class="count" id="count"></p>
+  <ul class="list" id="list"></ul>
+</main>
+
+<dialog id="setup">
+  <h2>Плейлист</h2>
+  <p>Вставьте ссылку на M3U от вашего IPTV-провайдера, загрузите файл или вставьте текст плейлиста.</p>
+  <div class="field">
+    <label for="m3uUrl">Ссылка на M3U / M3U8</label>
+    <input id="m3uUrl" type="url" inputmode="url" placeholder="https://provider.tv/playlist.m3u" autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="m3uText">Или текст плейлиста</label>
+    <textarea id="m3uText" placeholder="#EXTM3U&#10;#EXTINF:-1 group-title=&quot;Новости&quot;,Канал&#10;https://…/index.m3u8"></textarea>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="loadBtn">Загрузить</button>
+    <span class="btn file">Файл .m3u<input id="m3uFile" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,text/plain"></span>
+    <button class="btn" id="demoBtn">Тестовые потоки</button>
+    <button class="btn" id="closeSetup">Закрыть</button>
+  </div>
+  <p class="err" id="err"></p>
+  <div class="howto">
+    <b>Как вывести на экран машины</b>
+    <ol>
+      <li>iPhone на iOS 26.4 или новее, подключён к CarPlay.</li>
+      <li>Машина стоит: в движении видео на экране CarPlay не показывается.</li>
+      <li>Включите канал здесь, нажмите <b>AirPlay</b> и выберите машину.</li>
+      <li>Добавьте сайт на экран «Домой» через «Поделиться», чтобы открывать как приложение.</li>
+    </ol>
+  </div>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const v = $("v");
+  const store = {
+    get(k, d) { try { const x = localStorage.getItem(k); return x == null ? d : JSON.parse(x); } catch { return d; } },
+    set(k, x) { try { localStorage.setItem(k, JSON.stringify(x)); } catch {} }
+  };
+
+  const DEMO = `#EXTM3U
+#EXTINF:-1 tvg-name="Apple test" group-title="Тест",Apple HLS тест (4K/HDR)
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8
+#EXTINF:-1 group-title="Тест",Big Buck Bunny (Mux)
+https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+#EXTINF:-1 group-title="Тест",Tears of Steel
+https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8`;
+
+  let channels = [];
+  let group = store.get("ctv.group", "Все");
+  let favs = new Set(store.get("ctv.favs", []));
+  let current = null;
+  let hls = null;
+  let playlist = [];
+  let links = store.get("ctv.links", []);
+  const LINKS = "Мои ссылки";
+
+  // Ссылка → что играть: прямой поток в <video> или официальный встраиваемый плеер сервиса
+  function resolveLink(raw) {
+    let u;
+    try { u = new URL(raw.trim()); } catch { return null; }
+    const h = u.hostname.replace(/^www\.|^m\./, "");
+    const p = u.pathname;
+    const mk = (service, name, embed) => ({ service, name, embed, url: raw.trim(), id: raw.trim(), group: LINKS, logo: "" });
+    if (/\.(m3u8?|mp4|webm|mov)(\?|$)/i.test(p + u.search) || /\.(m3u8?|mp4)$/i.test(p))
+      return { ...mk("Поток", decodeURIComponent(p.split("/").pop() || h), ""), embed: "" };
+    if (h === "youtu.be" || h.endsWith("youtube.com")) {
+      const id = h === "youtu.be" ? p.slice(1).split("/")[0]
+        : u.searchParams.get("v") || (p.match(/\/(shorts|live|embed)\/([\w-]{6,})/) || [])[2];
+      if (!id) return null;
+      return mk("YouTube", "YouTube · " + id, `https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0`);
+    }
+    if (h.endsWith("rutube.ru")) {
+      const id = (p.match(/\/(video|live\/video|play\/embed)\/(?:private\/)?([a-f0-9]{20,})/i) || [])[2];
+      if (!id) return null;
+      return mk("Rutube", "Rutube · " + id.slice(0, 8), `https://rutube.ru/play/embed/${id}?autoplay=1`);
+    }
+    if (h.endsWith("vk.com") || h.endsWith("vkvideo.ru") || h.endsWith("vk.ru")) {
+      const m = (p + "?" + u.search + u.hash).match(/video(-?\d+)_(\d+)/);
+      if (!m) return null;
+      return mk("VK Видео", "VK · " + m[2], `https://vk.com/video_ext.php?oid=${m[1]}&id=${m[2]}&hd=2&autoplay=1`);
+    }
+    if (h.endsWith("twitch.tv")) {
+      const parent = location.hostname;
+      const vid = (p.match(/\/videos\/(\d+)/) || [])[1];
+      const ch = p.split("/").filter(Boolean)[0];
+      if (vid) return mk("Twitch", "Twitch · запись " + vid, `https://player.twitch.tv/?video=${vid}&parent=${parent}`);
+      if (ch) return mk("Twitch", "Twitch · " + ch, `https://player.twitch.tv/?channel=${ch}&parent=${parent}`);
+      return null;
+    }
+    return null;
+  }
+  links = links.map(l => ({ ...resolveLink(l.url), name: l.name || resolveLink(l.url)?.name })).filter(l => l.url);
+  const saveLinks = () => store.set("ctv.links", links.map(l => ({ url: l.url, name: l.name })));
+
+  function parseM3U(text) {
+    const out = [];
+    const lines = text.replace(/\r/g, "").split("\n");
+    let meta = null;
+    for (let raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith("#EXTINF")) {
+        const attr = k => (line.match(new RegExp(k + '="([^"]*)"')) || [])[1] || "";
+        const comma = line.indexOf(",", line.lastIndexOf('"') > 0 ? line.lastIndexOf('"') : 0);
+        meta = {
+          name: (comma >= 0 ? line.slice(comma + 1) : "").trim() || attr("tvg-name") || "Без названия",
+          logo: attr("tvg-logo"),
+          group: attr("group-title") || "Без группы"
+        };
+      } else if (line.startsWith("#EXTGRP:") && meta) {
+        meta.group = line.slice(8).trim() || meta.group;
+      } else if (!line.startsWith("#")) {
+        if (/^https?:\/\//i.test(line) || /^rtmp/i.test(line)) {
+          const m = meta || { name: line.split("/").pop(), logo: "", group: "Без группы" };
+          out.push({ ...m, url: line, id: line });
+        }
+        meta = null;
+      }
+    }
+    return out;
+  }
+
+  function setChannels(list, save) {
+    if (list) playlist = list;
+    channels = [...links, ...playlist];
+    if (save) store.set("ctv.text", save);
+    if (group !== "Все" && group !== "Избранное" && !channels.some(c => c.group === group)) group = "Все";
+    renderGroups(); renderList();
+  }
+
+  function renderGroups() {
+    const names = ["Все", "Избранное", ...new Set(channels.map(c => c.group))];
+    if (!links.length && names.includes(LINKS)) names.splice(names.indexOf(LINKS), 1);
+    const g = $("groups"); g.textContent = "";
+    for (const n of names) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.textContent = n;
+      b.setAttribute("aria-pressed", String(n === group));
+      b.onclick = () => { group = n; store.set("ctv.group", n); renderGroups(); renderList(); };
+      g.append(b);
+    }
+  }
+
+  function renderList() {
+    const q = $("q").value.trim().toLowerCase();
+    let items = channels;
+    if (group === "Избранное") items = items.filter(c => favs.has(c.id));
+    else if (group !== "Все") items = items.filter(c => c.group === group);
+    if (q) items = items.filter(c => c.name.toLowerCase().includes(q));
+    const ul = $("list"); ul.textContent = "";
+    $("count").textContent = channels.length ? `${items.length} из ${channels.length} каналов` : "";
+    if (!channels.length) { ul.innerHTML = '<li class="empty">Плейлист не загружен. Нажмите кнопку справа от AirPlay.</li>'; return; }
+    if (!items.length) { ul.innerHTML = '<li class="empty">Ничего не найдено</li>'; return; }
+    const frag = document.createDocumentFragment();
+    for (const c of items.slice(0, 600)) {
+      const li = document.createElement("li");
+      li.className = "row" + (current && current.id === c.id ? " on" : "");
+      const play = document.createElement("button");
+      play.className = "play"; play.setAttribute("aria-label", "Смотреть " + c.name);
+      const logo = document.createElement("span"); logo.className = "logo";
+      if (c.logo) { const img = new Image(); img.loading = "lazy"; img.alt = ""; img.src = c.logo; img.onerror = () => { logo.textContent = initials(c.name); }; logo.append(img); }
+      else logo.textContent = initials(c.name);
+      const meta = document.createElement("span"); meta.className = "meta";
+      meta.innerHTML = `<div class="n"></div><div class="g"></div>`;
+      meta.firstChild.textContent = c.name; meta.lastChild.textContent = c.group;
+      play.append(logo, meta);
+      play.onclick = () => playChannel(c);
+      const fav = document.createElement("button");
+      fav.className = "fav"; fav.textContent = "★";
+      fav.setAttribute("aria-label", "В избранное");
+      fav.setAttribute("aria-pressed", String(favs.has(c.id)));
+      fav.onclick = () => {
+        favs.has(c.id) ? favs.delete(c.id) : favs.add(c.id);
+        store.set("ctv.favs", [...favs]);
+        fav.setAttribute("aria-pressed", String(favs.has(c.id)));
+        if (group === "Избранное") renderList();
+      };
+      li.append(play, fav);
+      if (c.group === LINKS) {
+        li.classList.add("wide");
+        const del = document.createElement("button");
+        del.className = "del"; del.textContent = "✕"; del.setAttribute("aria-label", "Удалить ссылку");
+        del.onclick = () => { links = links.filter(l => l.id !== c.id); saveLinks(); setChannels(null); };
+        li.append(del);
+      }
+      frag.append(li);
+    }
+    ul.append(frag);
+  }
+
+  const initials = n => n.replace(/[^\p{L}\p{N} ]/gu, "").split(" ").filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "TV";
+
+  function state(text, live) { const s = $("nowState"); s.textContent = text; s.classList.toggle("live", !!live); }
+
+  function playChannel(c) {
+    current = c;
+    store.set("ctv.last", c.id);
+    $("nowName").textContent = c.name;
+    $("idle").hidden = true;
+    state("Подключение…");
+    if (hls) { hls.destroy(); hls = null; }
+    const fr = $("f");
+    if (c.embed) {
+      v.pause(); v.removeAttribute("src"); v.load();
+      fr.src = c.embed; fr.hidden = false;
+      state(c.service + " · AirPlay в плеере сервиса");
+      $("airplay").disabled = true;
+      renderList();
+      return;
+    }
+    fr.hidden = true; fr.src = "about:blank";
+    if (location.protocol === "https:" && c.url.startsWith("http:")) {
+      state("Поток по http — может не открыться");
+    }
+    const native = v.canPlayType("application/vnd.apple.mpegurl");
+    if (native || !window.Hls || !Hls.isSupported() || !/\.m3u8?(\?|$)/i.test(c.url)) {
+      v.src = c.url;
+    } else {
+      hls = new Hls({ enableWorker: true });
+      hls.loadSource(c.url); hls.attachMedia(v);
+      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) state("Поток недоступен"); });
+    }
+    v.play().catch(() => state("Нажмите ▶ на плеере"));
+    $("airplay").disabled = !v.webkitShowPlaybackTargetPicker;
+    renderList();
+  }
+
+  v.addEventListener("playing", () => state("В эфире", true));
+  v.addEventListener("waiting", () => state("Буферизация…"));
+  v.addEventListener("error", () => state("Поток недоступен"));
+  v.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", () => {
+    if (v.webkitCurrentPlaybackTargetIsWireless) state("На экране машины", true);
+  });
+
+  if (window.WebKitPlaybackTargetAvailabilityEvent) {
+    v.addEventListener("webkitplaybacktargetavailabilitychanged", e => {
+      $("airplay").disabled = e.availability !== "available";
+    });
+  }
+  $("airplay").onclick = () => { if (v.webkitShowPlaybackTargetPicker) v.webkitShowPlaybackTargetPicker(); };
+
+  // Настройки плейлиста
+  const dlg = $("setup");
+  const openSetup = () => { $("err").textContent = ""; $("m3uUrl").value = store.get("ctv.url", ""); dlg.showModal(); };
+  $("openSetup").onclick = openSetup;
+  $("closeSetup").onclick = () => dlg.close();
+
+  function apply(text) {
+    const list = parseM3U(text);
+    if (!list.length) { $("err").textContent = "В плейлисте не найдено ни одного канала"; return false; }
+    setChannels(list, text); dlg.close(); return true;
+  }
+
+  $("loadBtn").onclick = async () => {
+    $("err").textContent = "";
+    const txt = $("m3uText").value.trim();
+    const url = $("m3uUrl").value.trim();
+    if (txt) { apply(txt); return; }
+    if (!url) { $("err").textContent = "Вставьте ссылку или текст плейлиста"; return; }
+    $("loadBtn").disabled = true; $("loadBtn").textContent = "Загрузка…";
+    try {
+      const r = await fetch("/api/playlist?url=" + encodeURIComponent(url));
+      const body = await r.text();
+      if (!r.ok) throw new Error(body);
+      if (apply(body)) store.set("ctv.url", url);
+    } catch (e) {
+      $("err").textContent = e.message || "Не удалось загрузить плейлист";
+    } finally {
+      $("loadBtn").disabled = false; $("loadBtn").textContent = "Загрузить";
+    }
+  };
+  $("m3uFile").onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => apply(String(rd.result));
+    rd.readAsText(f);
+  };
+  $("demoBtn").onclick = () => apply(DEMO);
+  $("q").oninput = renderList;
+
+  $("linkForm").onsubmit = e => {
+    e.preventDefault();
+    $("linkErr").textContent = "";
+    const raw = $("linkUrl").value;
+    if (!raw.trim()) return;
+    const c = resolveLink(raw);
+    if (!c) { $("linkErr").textContent = "Не распознал ссылку. Подходят YouTube, Rutube, VK Видео, Twitch и прямые .m3u8 / .mp4"; return; }
+    if (!links.some(l => l.id === c.id)) { links.unshift(c); saveLinks(); }
+    $("linkUrl").value = "";
+    setChannels(null);
+    playChannel(links.find(l => l.id === c.id));
+  };
+
+  // Старт: восстановить последний плейлист, иначе тестовые потоки
+  const saved = store.get("ctv.text", "");
+  setChannels(parseM3U(saved || DEMO));
+  const last = store.get("ctv.last", "");
+  const lc = channels.find(c => c.id === last);
+  if (lc) { current = lc; $("nowName").textContent = lc.name; state("Нажмите канал, чтобы продолжить"); renderList(); }
+  if (!saved) setTimeout(openSetup, 300);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "carplay-tv",
+  "version": "1.0.0",
+  "private": true,
+  "description": "IPTV веб-плеер с выводом на CarPlay через AirPlay",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
