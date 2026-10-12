@@ -24,12 +24,13 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:16px}
-body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+body{padding:0 0 env(safe-area-inset-bottom)}
+[hidden]{display:none!important}
 button,input{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 
-.stage{position:sticky;top:0;z-index:5;background:#000}
+.stage{position:sticky;top:0;z-index:5;background:#000;padding-top:env(safe-area-inset-top)}
 .screen{position:relative;width:100%;aspect-ratio:16/9;max-height:56vh;background:#000;margin:0 auto}
 video,iframe{width:100%;height:100%;display:block;background:#000;border:0}
 iframe{position:absolute;inset:0}
@@ -115,8 +116,8 @@ dialog p{margin:0 0 16px;color:var(--mute);line-height:1.45}
 </section>
 
 <main>
-  <form class="tools addlink" id="linkForm">
-    <input class="search" id="linkUrl" type="url" inputmode="url" placeholder="Ссылка: YouTube, Rutube, VK, Twitch, .m3u8" autocomplete="off" aria-label="Ссылка на видео">
+  <form class="tools addlink" id="linkForm" novalidate>
+    <input class="search" id="linkUrl" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Ссылка: YouTube, Rutube, VK, Twitch, .m3u8" autocomplete="off" aria-label="Ссылка на видео">
     <button class="btn primary" type="submit">Открыть</button>
   </form>
   <p class="err" id="linkErr"></p>
@@ -187,7 +188,9 @@ https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tear
   // Ссылка → что играть: прямой поток в <video> или официальный встраиваемый плеер сервиса
   function resolveLink(raw) {
     let u;
-    try { u = new URL(raw.trim()); } catch { return null; }
+    raw = raw.trim();
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) raw = "https://" + raw;
+    try { u = new URL(raw); } catch { return null; }
     const h = u.hostname.replace(/^www\.|^m\./, "");
     const p = u.pathname;
     const mk = (service, name, embed) => ({ service, name, embed, url: raw.trim(), id: raw.trim(), group: LINKS, logo: "" });
@@ -414,7 +417,13 @@ https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tear
     const raw = $("linkUrl").value;
     if (!raw.trim()) return;
     const c = resolveLink(raw);
-    if (!c) { $("linkErr").textContent = "Не распознал ссылку. Подходят YouTube, Rutube, VK Видео, Twitch и прямые .m3u8 / .mp4"; return; }
+    if (!c) {
+      const home = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be|rutube\.ru|vk\.com|vkvideo\.ru|twitch\.tv)\/?$/i.test(raw.trim());
+      $("linkErr").textContent = home
+        ? "Нужна ссылка на конкретное видео. В приложении сервиса нажмите «Поделиться» → «Копировать ссылку» и вставьте сюда."
+        : "Не распознал ссылку. Подходят YouTube, Rutube, VK Видео, Twitch и прямые .m3u8 / .mp4";
+      return;
+    }
     if (!links.some(l => l.id === c.id)) { links.unshift(c); saveLinks(); }
     $("linkUrl").value = "";
     setChannels(null);
